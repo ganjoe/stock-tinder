@@ -2,5 +2,6 @@ __pycache__/
 *.pyc
 .venv/
 .env
+/data/market_cache
 .DS_Store
 data/market_cache/*/annotations.json

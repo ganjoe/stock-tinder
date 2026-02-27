@@ -1,0 +1,17 @@
+{
+    "human_annotations": [
+        {
+            "pattern": "vcp",
+            "start": "2025-12-25",
+            "end": "2026-01-23",
+            "score": 2
+        },
+        {
+            "pattern": "vcp",
+            "start": "2026-02-06",
+            "end": "2026-02-17",
+            "score": 6
+        }
+    ],
+    "ai_predictions": []
+}

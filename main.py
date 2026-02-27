@@ -20,7 +20,8 @@ from collections import defaultdict
 FILE_LOCKS = defaultdict(threading.Lock)
 
 # Basis-Verzeichnis für deine Ticker-Daten
-DATA_DIR = "./data/market_cache" # Für Produktivbetrieb ändern auf "/data/market_cache"
+DATA_DIR = "./data/market_cache" 
+ANNO_DIR = "./data/anno"
 
 # Dateinamen-Konventionen
 DATA_FILE = "1D.json"
@@ -48,18 +49,24 @@ def ensure_dummy_data():
         test_dir = os.path.join(DATA_DIR, "AAPL_TEST")
         os.makedirs(test_dir)
         
-        # Generiere 100 Tage Fake-Börsendaten
-        dates = pd.date_range(end=datetime.today(), periods=100).strftime('%Y-%m-%d').tolist()
-        df = pd.DataFrame({
-            "date": dates,
-            "open": np.linspace(100, 150, 100) + np.random.normal(0, 2, 100),
-            "high": np.linspace(100, 150, 100) + np.random.normal(0, 2, 100) + 2,
-            "low": np.linspace(100, 150, 100) + np.random.normal(0, 2, 100) - 2,
-            "close": np.linspace(100, 150, 100) + np.random.normal(0, 2, 100),
-            "volume": np.random.randint(1000000, 5000000, 100)
-        })
+        # Generiere 100 Tage Fake-Börsendaten im neuen Format
+        now_ts = int(datetime.now().timestamp())
+        day_sec = 86400
+        data = []
+        for i in range(100):
+            ts = now_ts - (100 - i) * day_sec
+            data.append({
+                "t": ts,
+                "o": float(np.linspace(100, 150, 100)[i] + np.random.normal(0, 2)),
+                "h": float(np.linspace(100, 150, 100)[i] + np.random.normal(0, 2) + 2),
+                "l": float(np.linspace(100, 150, 100)[i] + np.random.normal(0, 2) - 2),
+                "c": float(np.linspace(100, 150, 100)[i] + np.random.normal(0, 2)),
+                "v": float(np.random.randint(1000000, 5000000))
+            })
+        
         # Speichere 1D.json
-        df.to_json(os.path.join(test_dir, DATA_FILE), orient="records")
+        with open(os.path.join(test_dir, DATA_FILE), 'w') as f:
+            json.dump(data, f)
         print("INFO: Dummy-Daten erzeugt. Du kannst jetzt testen!")
 
 def get_ticker_list():
@@ -70,7 +77,7 @@ def get_ticker_list():
 
 def load_annotations(ticker):
     """Lädt die annotations.json oder erzeugt das saubere JSON-Schema (F-DAT-010)."""
-    filepath = os.path.join(DATA_DIR, ticker, ANNOTATION_FILE)
+    filepath = os.path.join(ANNO_DIR, ticker, ANNOTATION_FILE)
     if os.path.exists(filepath):
         with open(filepath, 'r') as f:
             return json.load(f)
@@ -93,7 +100,11 @@ def save_annotations(ticker, data):
     
     data["human_annotations"] = valid_annotations
 
-    filepath = os.path.join(DATA_DIR, ticker, ANNOTATION_FILE)
+    ticker_anno_dir = os.path.join(ANNO_DIR, ticker)
+    if not os.path.exists(ticker_anno_dir):
+        os.makedirs(ticker_anno_dir)
+        
+    filepath = os.path.join(ticker_anno_dir, ANNOTATION_FILE)
     tmppath = filepath + ".tmp"
     
     # Nutze Lock für diesen speziellen Ticker
@@ -114,10 +125,31 @@ def save_annotations(ticker, data):
                     pass
 
 def load_chart_data(ticker):
-    """Lädt die OHLCV Daten für den Chart."""
+    """Lädt die OHLCV Daten für den Chart und konvertiert das Format."""
     filepath = os.path.join(DATA_DIR, ticker, DATA_FILE)
     if os.path.exists(filepath):
-        return pd.read_json(filepath, orient="records")
+        try:
+            df = pd.read_json(filepath, orient="records")
+            if not df.empty:
+                # Mapping der neuen Feldnamen auf die alten
+                rename_map = {
+                    't': 'date',
+                    'o': 'open',
+                    'h': 'high',
+                    'l': 'low',
+                    'c': 'close',
+                    'v': 'volume'
+                }
+                # Nur umbenennen wenn die Spalten existieren
+                df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+                
+                # Konvertiere Unixtime in Datumstring YYYY-MM-DD
+                if 'date' in df.columns:
+                    df['date'] = pd.to_datetime(df['date'], unit='s').dt.strftime('%Y-%m-%d')
+            return df
+        except Exception as e:
+            print(f"ERROR beim Laden der Chart-Daten für {ticker}: {e}")
+            return pd.DataFrame()
     return pd.DataFrame()
 
 # =====================================================================
@@ -253,13 +285,14 @@ app.layout = dbc.Container([
      Input("view-toggle", "value"),
      Input("dragmode-toggle", "value"),
      Input("autoscale-toggle", "value"),
-     Input("candlestick-chart", "relayoutData")], # Erlaubt Live-Update beim Zoomen/Pannen
+     Input("candlestick-chart", "relayoutData"),
+     Input("annotations-table", "active_cell")], # Tabellen-Klick Trigger
     [State("current-index", "data"),
      State("ticker-list", "data"),
      State("annotations-table", "data"),
      State("candlestick-chart", "figure")] # Vorherige Figure für State-Erhaltung
 )
-def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view_toggle, dragmode_toggle, autoscale_toggle, relayout_data, current_idx, ticker_list, table_data, prev_figure):
+def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view_toggle, dragmode_toggle, autoscale_toggle, relayout_data, active_cell, current_idx, ticker_list, table_data, prev_figure):
     """
     Diese zentrale Funktion steuert alles: Ticker-Wechsel, Speichern von Scores, Chart-Rendering.
     """
@@ -283,16 +316,53 @@ def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view
     df = load_chart_data(current_ticker)
     annotations = load_annotations(current_ticker)
 
+    # 2. Event-Voranalyse (Navigation, Table Nav)
+    table_nav_range = None
+    if trigger_id == "annotations-table" and active_cell:
+        row_idx = active_cell.get('row')
+        if row_idx is not None and row_idx < len(table_data):
+            ann = table_data[row_idx]
+            try:
+                # Konvertiere in Timestamps für die Berechnung
+                start_dt = pd.to_datetime(ann['start'])
+                end_dt = pd.to_datetime(ann['end'])
+                
+                # Berechne Padding (25% der Dauer auf jeder Seite, min 1 Tag)
+                duration_days = (end_dt - start_dt).days
+                padding_days = max(1, int(duration_days * 0.25))
+                
+                # Neuer Bereich mit Padding
+                new_start = (start_dt - pd.Timedelta(days=padding_days)).strftime('%Y-%m-%d')
+                new_end = (end_dt + pd.Timedelta(days=padding_days)).strftime('%Y-%m-%d')
+                
+                table_nav_range = [new_start, new_end]
+                # Priorität vor relayout_data setzen
+                relayout_data = {'xaxis.range[0]': new_start, 'xaxis.range[1]': new_end}
+                
+                # Wir setzen start_date und end_date manuell für die kommende Y-Achsen Skalierung
+                start_date = new_start
+                end_date = new_end
+            except Exception as e:
+                import traceback
+                print(f"INFO: Navigation fehlgeschlagen: {e}\n{traceback.format_exc()}")
+
     # Viewport-Bestimmung (Immer ausführen für Autoscale & Annotationen)
-    if relayout_data and 'xaxis.range[0]' in relayout_data:
-        try:
-            start_val = relayout_data['xaxis.range[0]']
-            end_val = relayout_data['xaxis.range[1]']
-            start_date = str(start_val).split(" ")[0]
-            end_date = str(end_val).split(" ")[0]
-        except (KeyError, IndexError, TypeError):
-            start_date = df['date'].iloc[0] if not df.empty else None
-            end_date = df['date'].iloc[-1] if not df.empty else None
+    # Wenn wir pannen/zoomen, erhalten wir die neuen Bereiche in relayout_data
+    relayout_y_range = None
+    if relayout_data and not table_nav_range: # Ignoriere relayout_data temporär wenn navbar click
+        if 'xaxis.range[0]' in relayout_data:
+            try:
+                start_val = relayout_data['xaxis.range[0]']
+                end_val = relayout_data['xaxis.range[1]']
+                start_date = str(start_val).split(" ")[0]
+                end_date = str(end_val).split(" ")[0]
+            except (KeyError, IndexError, TypeError):
+                start_date = df['date'].iloc[0] if not df.empty else None
+                end_date = df['date'].iloc[-1] if not df.empty else None
+        
+        # Erfasse auch den Y-Bereich, falls manuell gepannt wurde (F-UX-060)
+        if 'yaxis.range[0]' in relayout_data:
+            relayout_y_range = [relayout_data['yaxis.range[0]'], relayout_data['yaxis.range[1]']]
     else:
         start_date = df['date'].iloc[0] if not df.empty else None
         end_date = df['date'].iloc[-1] if not df.empty else None
@@ -362,12 +432,15 @@ def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view
             margin=dict(l=20, r=20, t=30, b=20),
             dragmode=dragmode_toggle,
             uirevision=current_ticker, # Wichtig: Verhindert Reset beim Update
-            yaxis_fixedrange=True,
+            yaxis_fixedrange=(dragmode_toggle == "zoom"),
             yaxis2_fixedrange=True,
         )
 
         if y_range:
             fig.update_layout(yaxis_range=y_range, yaxis_autorange=False)
+        elif relayout_y_range:
+            # Falls kein Autoscale aktiv ist, aber wir gerade gepannt haben, übernehmen wir den Bereich
+            fig.update_layout(yaxis_range=relayout_y_range, yaxis_autorange=False)
         else:
             fig.update_layout(yaxis_autorange=True)
             
@@ -375,6 +448,14 @@ def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view
             fig.update_layout(yaxis2_range=y2_range, yaxis2_autorange=False)
         else:
             fig.update_layout(yaxis2_autorange=True)
+            
+        # Wenn wir via Tabelle navigiert haben, erzwingen wir den X-Bereich
+        if table_nav_range:
+            fig.update_layout(
+                xaxis_range=table_nav_range,
+                xaxis_autorange=False, 
+                uirevision=f"{current_ticker}_{table_nav_range[0]}" # Ändere uirevision leicht, um Update zu erzwingen
+            )
         
         # 5. Annotation Highlights in den Chart zeichnen (F-VIS-010)
         target_list = "human_annotations" if view_toggle == "human" else "ai_predictions"
