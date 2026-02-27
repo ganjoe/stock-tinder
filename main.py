@@ -285,4 +285,4 @@ def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view
 if __name__ == '__main__':
     # Startet den integrierten Webserver auf Port 8050
     # Erreichbar über http://127.0.0.1:8050 oder im Netzwerk über Server-IP
-    app.run_server(debug=True, host='0.0.0.0', port=8050)
+    app.run(debug=True, host='0.0.0.0', port=8050)
