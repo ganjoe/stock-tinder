@@ -2,9 +2,9 @@
     "human_annotations": [
         {
             "pattern": "vcp",
-            "start": "2025-10-15",
-            "end": "2025-12-09",
-            "score": 3
+            "start": "2025-03-28",
+            "end": "2025-07-25",
+            "score": 2
         }
     ],
     "ai_predictions": []

@@ -1,5 +1,5 @@
 import dash
-from dash import dcc, html, dash_table, Input, Output, State, ctx
+from dash import dcc, html, dash_table, Input, Output, State, ctx, Patch, no_update
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -11,6 +11,7 @@ from datetime import datetime
 import numpy as np
 import threading
 from collections import defaultdict
+import functools
 
 # =====================================================================
 # KONFIGURATION & KONSTANTEN (Hier Parameter anpassen)
@@ -124,8 +125,9 @@ def save_annotations(ticker, data):
                 except:
                     pass
 
+@functools.lru_cache(maxsize=10)
 def load_chart_data(ticker):
-    """Lädt die OHLCV Daten für den Chart und konvertiert das Format."""
+    """Lädt die OHLCV Daten für den Chart und konvertiert das Format. Mit Caching für Performance."""
     filepath = os.path.join(DATA_DIR, ticker, DATA_FILE)
     if os.path.exists(filepath):
         try:
@@ -143,9 +145,9 @@ def load_chart_data(ticker):
                 # Nur umbenennen wenn die Spalten existieren
                 df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
                 
-                # Konvertiere Unixtime in Datumstring YYYY-MM-DD
+                # Konvertiere Unixtime in datetime Objekte (kein strftime! Plotly braucht echte Dates fuer Performance)
                 if 'date' in df.columns:
-                    df['date'] = pd.to_datetime(df['date'], unit='s').dt.strftime('%Y-%m-%d')
+                    df['date'] = pd.to_datetime(df['date'], unit='s')
             return df
         except Exception as e:
             print(f"ERROR beim Laden der Chart-Daten für {ticker}: {e}")
@@ -188,7 +190,10 @@ app.layout = dbc.Container([
             dbc.ButtonGroup([
                 dbc.Button("◄ Prev", id="btn-prev", color="secondary", size="sm", className="m-1"),
                 dbc.Button("Next ►", id="btn-next", color="primary", size="sm", className="m-1"),
-                *[dbc.Button(f"{i}", id=f"btn-score-{i}", color="success", size="sm", className="m-1") for i in range(1, 7)]
+                *[dbc.Button(f"{i}", id=f"btn-score-{i}", color="success", size="sm", className="m-1") for i in range(1, 7)],
+                dbc.Button("30D", id="btn-tf-30", color="info", size="sm", outline=True, className="m-1"),
+                dbc.Button("60D", id="btn-tf-60", color="info", size="sm", outline=True, className="m-1"),
+                dbc.Button("90D", id="btn-tf-90", color="info", size="sm", outline=True, className="m-1"),
             ])
         ], xs=12, md=8),
         dbc.Col([
@@ -286,13 +291,16 @@ app.layout = dbc.Container([
      Input("dragmode-toggle", "value"),
      Input("autoscale-toggle", "value"),
      Input("candlestick-chart", "relayoutData"),
-     Input("annotations-table", "active_cell")], # Tabellen-Klick Trigger
+     Input("annotations-table", "active_cell"),
+     Input("btn-tf-30", "n_clicks"),
+     Input("btn-tf-60", "n_clicks"),
+     Input("btn-tf-90", "n_clicks")],
     [State("current-index", "data"),
      State("ticker-list", "data"),
      State("annotations-table", "data"),
      State("candlestick-chart", "figure")] # Vorherige Figure für State-Erhaltung
 )
-def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view_toggle, dragmode_toggle, autoscale_toggle, relayout_data, active_cell, current_idx, ticker_list, table_data, prev_figure):
+def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view_toggle, dragmode_toggle, autoscale_toggle, relayout_data, active_cell, tf30, tf60, tf90, current_idx, ticker_list, table_data, prev_figure):
     """
     Diese zentrale Funktion steuert alles: Ticker-Wechsel, Speichern von Scores, Chart-Rendering.
     """
@@ -302,6 +310,44 @@ def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view
     # 1. Welches Event hat den Callback ausgelöst?
     trigger_id = ctx.triggered_id if ctx.triggered_id else 'No clicks yet'
     
+    # === FAST-PATH: Zoom/Pan Event === 
+    # Wenn der Chart selbst das Event ausgelöst hat (Scroll/Drag), NICHT alles neu zeichnen.
+    if trigger_id == "candlestick-chart":
+        autoscale_on = "auto" in autoscale_toggle
+        
+        # Autoscale AUS -> Browser macht alles alleine, kein Server-Roundtrip nötig
+        if not autoscale_on:
+            return no_update, no_update, no_update, no_update
+        
+        # Autoscale AN + X-Achse hat sich geändert -> Nur Y-Achse patchen
+        if relayout_data and 'xaxis.range[0]' in relayout_data:
+            current_ticker = ticker_list[current_idx]
+            df = load_chart_data(current_ticker)  # Aus dem LRU-Cache, kein Disk I/O
+            if not df.empty:
+                try:
+                    x0 = pd.to_datetime(relayout_data['xaxis.range[0]'])
+                    x1 = pd.to_datetime(relayout_data['xaxis.range[1]'])
+                    visible_df = df[(df['date'] >= x0) & (df['date'] <= x1)]
+                    if not visible_df.empty:
+                        y_min = visible_df['low'].min()
+                        y_max = visible_df['high'].max()
+                        padding = (y_max - y_min) * 0.1
+                        if padding == 0: padding = y_max * 0.01
+                        v_max = visible_df['volume'].max()
+                        
+                        patched = Patch()
+                        patched['layout']['yaxis']['range'] = [y_min - padding, y_max + padding]
+                        patched['layout']['yaxis']['autorange'] = False
+                        patched['layout']['yaxis2']['range'] = [0, v_max * 1.1]
+                        patched['layout']['yaxis2']['autorange'] = False
+                        return no_update, no_update, patched, no_update
+                except:
+                    pass
+        
+        # Alle anderen Chart-Events (Reset, Y-Pan, etc.) -> ignorieren
+        return no_update, no_update, no_update, no_update
+    
+            
     # Navigation Logik
     if trigger_id == "btn-next":
         current_idx = (current_idx + 1) % len(ticker_list)
@@ -316,9 +362,30 @@ def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view
     df = load_chart_data(current_ticker)
     annotations = load_annotations(current_ticker)
 
-    # 2. Event-Voranalyse (Navigation, Table Nav)
+    # 2. Event-Voranalyse (Navigation, Table Nav, Timeframe Buttons)
     table_nav_range = None
-    if trigger_id == "annotations-table" and active_cell:
+    
+    # Timeframe Buttons (30D, 60D, 90D)
+    if trigger_id in ["btn-tf-30", "btn-tf-60", "btn-tf-90"]:
+        days = int(trigger_id.split("-")[-1])
+        # Linke Kante des aktuellen Viewports beibehalten
+        # Prio 1: relayoutData (vom letzten nativen Zoom/Pan)
+        # Prio 2: prev_figure Layout (z.B. nach Table-Klick, wo relayoutData veraltet ist)
+        # Prio 3: Ende der Daten minus N Tage
+        if relayout_data and 'xaxis.range[0]' in relayout_data:
+            left_edge = pd.to_datetime(relayout_data['xaxis.range[0]'])
+        elif prev_figure and 'layout' in prev_figure and 'xaxis' in prev_figure['layout'] and 'range' in prev_figure['layout']['xaxis']:
+            left_edge = pd.to_datetime(prev_figure['layout']['xaxis']['range'][0])
+        elif not df.empty:
+            left_edge = df['date'].iloc[-1] - pd.Timedelta(days=days)
+        else:
+            left_edge = pd.Timestamp.now() - pd.Timedelta(days=days)
+        right_edge = left_edge + pd.Timedelta(days=days)
+        table_nav_range = [left_edge, right_edge]
+        start_date = left_edge
+        end_date = right_edge
+    
+    elif trigger_id == "annotations-table" and active_cell:
         row_idx = active_cell.get('row')
         if row_idx is not None and row_idx < len(table_data):
             ann = table_data[row_idx]
@@ -332,14 +399,12 @@ def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view
                 padding_days = max(1, int(duration_days * 0.25))
                 
                 # Neuer Bereich mit Padding
-                new_start = (start_dt - pd.Timedelta(days=padding_days)).strftime('%Y-%m-%d')
-                new_end = (end_dt + pd.Timedelta(days=padding_days)).strftime('%Y-%m-%d')
+                new_start = start_dt - pd.Timedelta(days=padding_days)
+                new_end = end_dt + pd.Timedelta(days=padding_days)
                 
                 table_nav_range = [new_start, new_end]
-                # Priorität vor relayout_data setzen
-                relayout_data = {'xaxis.range[0]': new_start, 'xaxis.range[1]': new_end}
                 
-                # Wir setzen start_date und end_date manuell für die kommende Y-Achsen Skalierung
+                # Setze start_date und end_date für die Y-Achsen Skalierung
                 start_date = new_start
                 end_date = new_end
             except Exception as e:
@@ -347,23 +412,22 @@ def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view
                 print(f"INFO: Navigation fehlgeschlagen: {e}\n{traceback.format_exc()}")
 
     # Viewport-Bestimmung (Immer ausführen für Autoscale & Annotationen)
-    # Wenn wir pannen/zoomen, erhalten wir die neuen Bereiche in relayout_data
     relayout_y_range = None
-    if relayout_data and not table_nav_range: # Ignoriere relayout_data temporär wenn navbar click
+    if relayout_data and not table_nav_range:
         if 'xaxis.range[0]' in relayout_data:
             try:
-                start_val = relayout_data['xaxis.range[0]']
-                end_val = relayout_data['xaxis.range[1]']
-                start_date = str(start_val).split(" ")[0]
-                end_date = str(end_val).split(" ")[0]
-            except (KeyError, IndexError, TypeError):
+                start_date = pd.to_datetime(relayout_data['xaxis.range[0]'])
+                end_date = pd.to_datetime(relayout_data['xaxis.range[1]'])
+            except:
                 start_date = df['date'].iloc[0] if not df.empty else None
                 end_date = df['date'].iloc[-1] if not df.empty else None
+        else:
+            start_date = df['date'].iloc[0] if not df.empty else None
+            end_date = df['date'].iloc[-1] if not df.empty else None
         
-        # Erfasse auch den Y-Bereich, falls manuell gepannt wurde (F-UX-060)
         if 'yaxis.range[0]' in relayout_data:
             relayout_y_range = [relayout_data['yaxis.range[0]'], relayout_data['yaxis.range[1]']]
-    else:
+    elif not table_nav_range:
         start_date = df['date'].iloc[0] if not df.empty else None
         end_date = df['date'].iloc[-1] if not df.empty else None
     
@@ -372,10 +436,13 @@ def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view
         score = int(trigger_id.split("-")[-1])
             
         # Neues Label generieren und an Human Annotations anhängen
+        # Konvertiere Timestamps in Strings fuer JSON
+        sd_str = pd.to_datetime(start_date).strftime('%Y-%m-%d') if hasattr(start_date, 'strftime') else str(start_date).split(' ')[0]
+        ed_str = pd.to_datetime(end_date).strftime('%Y-%m-%d') if hasattr(end_date, 'strftime') else str(end_date).split(' ')[0]
         new_label = {
             "pattern": PATTERN_NAME,
-            "start": start_date,
-            "end": end_date,
+            "start": sd_str,
+            "end": ed_str,
             "score": score
         }
         annotations["human_annotations"].append(new_label)
@@ -396,7 +463,7 @@ def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view
         # Candlesticks
         fig.add_trace(go.Candlestick(x=df['date'], open=df['open'], high=df['high'], 
                                      low=df['low'], close=df['close'], name="OHLC"), row=1, col=1)
-        # Volumen
+        # Volumen (Wiederhergestellt: Bar Chart wie vom User gewünscht)
         fig.add_trace(go.Bar(x=df['date'], y=df['volume'], marker_color='gray', name="Volume"), row=2, col=1)
         
         # Rangeslider entfernen, verbraucht nur Platz, Legende ausblenden für Mobile
@@ -405,33 +472,37 @@ def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view
         
         y_range = None
         y2_range = None
-        if autoscale_on and not df.empty and start_date and end_date:
-            # Manuelle Autoscale-Berechnung für den sichtbaren Bereich
-            # Wir filtern die Daten basierend auf dem aktuellen X-Viewport
+        
+        # Y-Skalierung berechnen wenn Auto an ist
+        if autoscale_on and not df.empty and start_date is not None and end_date is not None:
             visible_df = df[(df['date'] >= start_date) & (df['date'] <= end_date)]
             if not visible_df.empty:
                 y_min = visible_df['low'].min()
                 y_max = visible_df['high'].max()
-                padding = (y_max - y_min) * 0.1 # 10% Padding oben/unten
+                padding = (y_max - y_min) * 0.1
+                if padding == 0: padding = y_max * 0.01
                 y_range = [y_min - padding, y_max + padding]
-                
-                # Volumen anpassen
                 y2_max = visible_df['volume'].max()
                 y2_range = [0, y2_max * 1.1]
-
-        elif not autoscale_on and prev_figure and 'layout' in prev_figure and trigger_id not in ["btn-next", "btn-prev", "No clicks yet"]:
-            # Fallback auf den vorherigen Y-Range, um ein Verschwinden/Reset zu verhindern
+                
+        elif not autoscale_on and prev_figure and 'layout' in prev_figure and trigger_id not in ["btn-next", "btn-prev", "No clicks yet", "annotations-table", "autoscale-toggle"]:
+            # Fallback auf den vorherigen Y-Range
             if 'yaxis' in prev_figure['layout']:
                 y_range = prev_figure['layout']['yaxis'].get('range')
             if 'yaxis2' in prev_figure['layout']:
                 y2_range = prev_figure['layout']['yaxis2'].get('range')
+
+        # uirevision: Bei Table-Nav wechseln, damit Plotly die neue X-Range annimmt
+        ui_rev = current_ticker
+        if table_nav_range:
+            ui_rev = f"{current_ticker}_{table_nav_range[0]}"
 
         fig.update_layout(
             showlegend=False, 
             xaxis_rangeslider_visible=False, 
             margin=dict(l=20, r=20, t=30, b=20),
             dragmode=dragmode_toggle,
-            uirevision=current_ticker, # Wichtig: Verhindert Reset beim Update
+            uirevision=ui_rev,
             yaxis_fixedrange=(dragmode_toggle == "zoom"),
             yaxis2_fixedrange=True,
         )
@@ -439,7 +510,6 @@ def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view
         if y_range:
             fig.update_layout(yaxis_range=y_range, yaxis_autorange=False)
         elif relayout_y_range:
-            # Falls kein Autoscale aktiv ist, aber wir gerade gepannt haben, übernehmen wir den Bereich
             fig.update_layout(yaxis_range=relayout_y_range, yaxis_autorange=False)
         else:
             fig.update_layout(yaxis_autorange=True)
@@ -449,13 +519,17 @@ def main_logic(btn_prev, btn_next, b1, b2, b3, b4, b5, b6, table_timestamp, view
         else:
             fig.update_layout(yaxis2_autorange=True)
             
-        # Wenn wir via Tabelle navigiert haben, erzwingen wir den X-Bereich
+        # X-Achse: Table-Nav hat Prio, dann relayout State, dann Autorange
         if table_nav_range:
+            fig.update_layout(xaxis_range=table_nav_range, xaxis_autorange=False)
+        elif relayout_data and 'xaxis.range[0]' in relayout_data:
             fig.update_layout(
-                xaxis_range=table_nav_range,
-                xaxis_autorange=False, 
-                uirevision=f"{current_ticker}_{table_nav_range[0]}" # Ändere uirevision leicht, um Update zu erzwingen
+                xaxis_range=[relayout_data['xaxis.range[0]'], relayout_data['xaxis.range[1]']],
+                xaxis_autorange=False
             )
+        else:
+            fig.update_layout(xaxis_autorange=True)
+
         
         # 5. Annotation Highlights in den Chart zeichnen (F-VIS-010)
         target_list = "human_annotations" if view_toggle == "human" else "ai_predictions"
@@ -485,3 +559,4 @@ if __name__ == '__main__':
     # Startet den integrierten Webserver auf Port 8050
     # Erreichbar über http://127.0.0.1:8050 oder im Netzwerk über Server-IP
     app.run(debug=debug_mode, host='0.0.0.0', port=8050)
+
