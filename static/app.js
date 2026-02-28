@@ -12,8 +12,9 @@ let dataCache = new Map();
 let annotations = { human_annotations: [], ai_predictions: [] };
 let annotationLines = [];
 
-// Range Selection State
-let selectionRange = { start: null, end: null };
+// Table Visibility & Layout State
+let isTableVisible = localStorage.getItem('tableVisible') !== 'false';
+let volumeHeightRatio = 0.25; // Default: 150px / 600px wrapper
 let selectionSeries = null; // To draw temporary selection markers
 
 const COLOR_HUMAN = 'rgba(0, 255, 0, 0.2)';
@@ -167,6 +168,11 @@ function initChart() {
         if (range) chart.timeScale().setVisibleLogicalRange(range);
     });
 
+    // Initialize Visibility
+    const tableToggle = document.getElementById('table-toggle');
+    tableToggle.checked = isTableVisible;
+    updateLayout();
+
     // Task T-003: Sync Crosshairs
     function syncCrosshair(param, targetChart, targetSeries) {
         if (!param.time) {
@@ -210,6 +216,9 @@ function initChart() {
         if (newVolumeHeight > wrapperRect.height - 150) newVolumeHeight = wrapperRect.height - 150;
 
         volumeContainer.style.height = `${newVolumeHeight}px`;
+
+        // Update ratio so expansion maintains it
+        volumeHeightRatio = newVolumeHeight / wrapper.clientHeight;
 
         // Adjust charts
         chart.applyOptions({ width: priceContainer.clientWidth, height: priceContainer.clientHeight });
@@ -472,7 +481,54 @@ function zoomToRange(startStr, endStr) {
 // =====================================
 // EVENT LISTENERS
 // =====================================
+function updateLayout() {
+    const wrapper = document.getElementById('chart-wrapper');
+    const volumeContainer = document.getElementById('volume-chart-container');
+    const priceContainer = document.getElementById('price-chart-container');
+    const tableRow = document.getElementById('annotations-table-row');
+
+    // 1. Set wrapper height (Toggle expansion)
+    wrapper.style.height = isTableVisible ? '60vh' : '82vh';
+
+    // 2. Toggle Table Visibility (Opacity + Display)
+    if (isTableVisible) {
+        tableRow.style.display = 'flex';
+        setTimeout(() => tableRow.style.opacity = '1', 10);
+    } else {
+        tableRow.style.opacity = '0';
+        setTimeout(() => tableRow.style.display = 'none', 300); // Wait for transition
+    }
+
+    // 3. Apply stored ratio to volume container (after short delay for wrapper transition)
+    setTimeout(() => {
+        const newTotalHeight = wrapper.clientHeight;
+        const newVolHeight = newTotalHeight * volumeHeightRatio;
+        volumeContainer.style.height = `${newVolHeight}px`;
+
+        // 4. Force chart resize
+        if (chart) chart.applyOptions({ width: priceContainer.clientWidth, height: priceContainer.clientHeight });
+        if (volumeChart) volumeChart.applyOptions({ width: volumeContainer.clientWidth, height: newVolHeight });
+    }, 310);
+}
+
 function setupEventListeners() {
+    // Table Toggle
+    const tableToggle = document.getElementById('table-toggle');
+    tableToggle.addEventListener('change', (e) => {
+        isTableVisible = e.target.checked;
+        localStorage.setItem('tableVisible', isTableVisible);
+        updateLayout();
+    });
+
+    // Toggle Hotkey (T)
+    document.addEventListener('keydown', (e) => {
+        if (e.key.toLowerCase() === 't' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+            isTableVisible = !isTableVisible;
+            tableToggle.checked = isTableVisible;
+            localStorage.setItem('tableVisible', isTableVisible);
+            updateLayout();
+        }
+    });
     // Navigation
     document.getElementById('btn-prev').addEventListener('click', () => loadTicker((currentIndex - 1 + tickers.length) % tickers.length));
     document.getElementById('btn-next').addEventListener('click', () => loadTicker((currentIndex + 1) % tickers.length));
@@ -530,12 +586,11 @@ function setupEventListeners() {
                 // Clear selection and turn off select mode toggle
                 selectionRange = { start: null, end: null };
                 document.getElementById('select-mode-toggle').checked = false;
-                drawSelectionMarkers();
-
                 await saveAnnotations();
                 renderTable();
                 drawAnnotations();
             }
+            drawSelectionMarkers();
         });
     });
 

@@ -1,28 +1,10 @@
 {
     "human_annotations": [
         {
-            "start": 1691618400,
-            "end": 1700089200,
+            "start": 1696543200,
+            "end": 1708642800,
             "pattern": "vcp",
             "score": 3
-        },
-        {
-            "start": 1735254000,
-            "end": 1745359200,
-            "pattern": "vcp",
-            "score": 6
-        },
-        {
-            "start": 1418166000,
-            "end": 1771887600,
-            "pattern": "vcp",
-            "score": 5
-        },
-        {
-            "start": 1418079600,
-            "end": 1421276400,
-            "pattern": "vcp",
-            "score": 5
         }
     ],
     "ai_predictions": []
