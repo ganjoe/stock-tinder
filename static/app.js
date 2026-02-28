@@ -251,6 +251,15 @@ function drawAnnotations() {
     }
 }
 
+function formatTime(t) {
+    if (typeof t === 'number') {
+        // Unix timestamp (seconds) to YYYY-MM-DD
+        const d = new Date(t * 1000);
+        return d.toISOString().split('T')[0];
+    }
+    return t; // Fallback if already string
+}
+
 function renderTable() {
     const tbody = document.querySelector('#annotations-table tbody');
     tbody.innerHTML = '';
@@ -264,8 +273,8 @@ function renderTable() {
 
         // Build Row
         tr.innerHTML = `
-            <td class="nav-trigger">${ann.start}</td>
-            <td class="nav-trigger">${ann.end}</td>
+            <td class="nav-trigger">${formatTime(ann.start)}</td>
+            <td class="nav-trigger">${formatTime(ann.end)}</td>
             <td class="nav-trigger">${ann.pattern}</td>
             <td>
                 <input type="number" class="score-input bg-dark text-white border-secondary" 
@@ -359,15 +368,8 @@ function setupEventListeners() {
 
             // Priority 1: Shift+Click Selection
             if (selectionRange.start && selectionRange.end) {
-                start_date = typeof selectionRange.start === 'string' ? selectionRange.start : new Date(selectionRange.start * 1000).toISOString().split('T')[0];
-                end_date = typeof selectionRange.end === 'string' ? selectionRange.end : new Date(selectionRange.end * 1000).toISOString().split('T')[0];
-
-                // Optional: find exact match in currentData to ensure formatting consistency
-                const startObj = currentData.find(d => d.time === selectionRange.start);
-                const endObj = currentData.find(d => d.time === selectionRange.end);
-                if (startObj) start_date = startObj.time;
-                if (endObj) end_date = endObj.time;
-
+                start_date = selectionRange.start;
+                end_date = selectionRange.end;
             } else {
                 // Priority 2: Visible Range (Legacy behavior from Plotly)
                 const range = chart.timeScale().getVisibleRange();
