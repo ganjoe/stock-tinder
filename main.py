@@ -176,7 +176,7 @@ app.layout = dbc.Container([
                 style={"height": "60vh"}, # Fixierte Höhe, damit es nicht vom Bildschirm rutscht
                 config={
                     'scrollZoom': True,           # Erlaubt Pinch-to-Zoom
-                    'displayModeBar': False,      # Versteckt die Plotly-Menüleiste (F-UX-050)
+                    'displayModeBar': True,      # Versteckt die Plotly-Menüleiste (F-UX-050)
                     'displaylogo': False          # Entfernt das Plotly-Logo
                 }
             ), 
