@@ -10,6 +10,10 @@ let currentData = [];
 let annotations = { human_annotations: [], ai_predictions: [] };
 let annotationLines = [];
 
+// Range Selection State
+let selectionRange = { start: null, end: null };
+let selectionSeries = null; // To draw temporary selection markers
+
 const COLOR_HUMAN = 'rgba(0, 255, 0, 0.2)';
 const COLOR_BOT = 'rgba(0, 0, 255, 0.2)';
 
@@ -62,6 +66,15 @@ function initChart() {
         wickDownColor: '#ef5350',
     });
 
+    // Hidden series just for drawing the temporary selection markers
+    selectionSeries = chart.addLineSeries({
+        color: 'transparent',
+        lineWidth: 0,
+        crosshairMarkerVisible: false,
+        priceLineVisible: false,
+        lastValueVisible: false,
+    });
+
     volumeSeries = chart.addHistogramSeries({
         color: '#26a69a',
         priceFormat: {
@@ -83,6 +96,42 @@ function initChart() {
             });
         }
     });
+
+    // Handle Selection (Shift+Click OR Select Mode toggle)
+    chart.subscribeClick((param) => {
+        if (!param.time || !param.sourceEvent) return;
+
+        const isSelectMode = document.getElementById('select-mode-toggle').checked;
+        if (!param.sourceEvent.shiftKey && !isSelectMode) return;
+
+        const clickedTime = param.time;
+
+        if (!selectionRange.start || (selectionRange.start && selectionRange.end)) {
+            // New selection
+            selectionRange.start = clickedTime;
+            selectionRange.end = null;
+        } else {
+            // Complete selection
+            if (clickedTime < selectionRange.start) {
+                selectionRange.end = selectionRange.start;
+                selectionRange.start = clickedTime;
+            } else {
+                selectionRange.end = clickedTime;
+            }
+        }
+        drawSelectionMarkers();
+    });
+}
+
+function drawSelectionMarkers() {
+    let markers = [];
+    if (selectionRange.start) {
+        markers.push({ time: selectionRange.start, position: 'belowBar', color: '#ffcc00', shape: 'arrowUp', text: 'Select Start' });
+    }
+    if (selectionRange.end) {
+        markers.push({ time: selectionRange.end, position: 'aboveBar', color: '#ffcc00', shape: 'arrowDown', text: 'Select End' });
+    }
+    selectionSeries.setMarkers(markers);
 }
 
 // =====================================
@@ -147,6 +196,11 @@ function renderChart() {
 
     candlestickSeries.setData(candleData);
     volumeSeries.setData(volData);
+    selectionSeries.setData(candleData.map(d => ({ time: d.time, value: d.close }))); // Need data to attach markers
+
+    // Clear active selection on new ticker load
+    selectionRange = { start: null, end: null };
+    drawSelectionMarkers();
 
     // Draw Annotations (as colored background ranges or lines)
     drawAnnotations();
@@ -300,34 +354,54 @@ function setupEventListeners() {
             }
 
             const score = parseInt(e.target.getAttribute('data-score'));
-            const range = chart.timeScale().getVisibleRange();
 
-            if (range && range.from && range.to) {
-                // Determine exact day strings from the data
-                // getVisibleRange returns timestamps
-                // We map this back to our currentData
-                const visibleData = currentData.filter(d =>
-                    (typeof d.time === 'string' ? new Date(d.time).getTime() / 1000 : d.time) >=
-                    (typeof range.from === 'string' ? new Date(range.from).getTime() / 1000 : range.from) &&
-                    (typeof d.time === 'string' ? new Date(d.time).getTime() / 1000 : d.time) <=
-                    (typeof range.to === 'string' ? new Date(range.to).getTime() / 1000 : range.to)
-                );
+            let start_date, end_date;
 
-                if (visibleData.length > 0) {
-                    const start_date = visibleData[0].time;
-                    const end_date = visibleData[visibleData.length - 1].time;
+            // Priority 1: Shift+Click Selection
+            if (selectionRange.start && selectionRange.end) {
+                start_date = typeof selectionRange.start === 'string' ? selectionRange.start : new Date(selectionRange.start * 1000).toISOString().split('T')[0];
+                end_date = typeof selectionRange.end === 'string' ? selectionRange.end : new Date(selectionRange.end * 1000).toISOString().split('T')[0];
 
-                    annotations.human_annotations.push({
-                        start: start_date,
-                        end: end_date,
-                        pattern: "vcp",
-                        score: score
-                    });
+                // Optional: find exact match in currentData to ensure formatting consistency
+                const startObj = currentData.find(d => d.time === selectionRange.start);
+                const endObj = currentData.find(d => d.time === selectionRange.end);
+                if (startObj) start_date = startObj.time;
+                if (endObj) end_date = endObj.time;
 
-                    await saveAnnotations();
-                    renderTable();
-                    drawAnnotations();
+            } else {
+                // Priority 2: Visible Range (Legacy behavior from Plotly)
+                const range = chart.timeScale().getVisibleRange();
+                if (range && range.from && range.to) {
+                    const logicalRange = chart.timeScale().getVisibleLogicalRange();
+                    if (logicalRange) {
+                        const fromIdx = Math.max(0, Math.floor(logicalRange.from));
+                        const toIdx = Math.min(currentData.length - 1, Math.ceil(logicalRange.to));
+                        const visibleData = currentData.slice(fromIdx, toIdx + 1);
+
+                        if (visibleData.length > 0) {
+                            start_date = visibleData[0].time;
+                            end_date = visibleData[visibleData.length - 1].time;
+                        }
+                    }
                 }
+            }
+
+            if (start_date && end_date) {
+                annotations.human_annotations.push({
+                    start: start_date,
+                    end: end_date,
+                    pattern: "vcp",
+                    score: score
+                });
+
+                // Clear selection and turn off select mode toggle
+                selectionRange = { start: null, end: null };
+                document.getElementById('select-mode-toggle').checked = false;
+                drawSelectionMarkers();
+
+                await saveAnnotations();
+                renderTable();
+                drawAnnotations();
             }
         });
     });
