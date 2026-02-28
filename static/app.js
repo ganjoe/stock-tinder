@@ -1,7 +1,8 @@
 // =====================================
 // GLOBAL STATE
 // =====================================
-let tickers = [];
+let tickers = []; // Tickers for the CURRENT watchlist
+let allTickers = []; // ALL available tickers in the system
 let currentIndex = 0;
 let watchlists = [];
 let currentWatchlist = null;
@@ -27,7 +28,8 @@ const COLOR_BOT = 'rgba(0, 0, 255, 0.2)';
 // =====================================
 document.addEventListener("DOMContentLoaded", async () => {
     initChart();
-    await fetchWatchlists();
+    await fetchAllTickers(); // Fetch global list for search datalist
+    await fetchWatchlists(); // Fetch watchlists and initial subset
     setupEventListeners();
 });
 
@@ -274,6 +276,17 @@ function drawSelectionMarkers() {
 // =====================================
 // API CALLS
 // =====================================
+async function fetchAllTickers() {
+    const res = await fetch('/api/tickers');
+    const data = await res.json();
+    allTickers = data.tickers || [];
+
+    // We intentionally do NOT populate the datalist here anymore.
+    // It will be populated dynamically on user input to prevent it from showing when empty.
+    const datalist = document.getElementById('ticker-datalist');
+    datalist.innerHTML = '';
+}
+
 async function fetchWatchlists() {
     const res = await fetch('/api/watchlists');
     const data = await res.json();
@@ -283,8 +296,9 @@ async function fetchWatchlists() {
     wsSelect.innerHTML = '';
 
     if (watchlists.length === 0) {
-        // Fallback to old behavior if no watchlists
-        await fetchTickers();
+        // Fallback to global list if no watchlists exist
+        tickers = allTickers;
+        if (tickers.length > 0) await loadTicker(0);
         return;
     }
 
@@ -329,12 +343,36 @@ async function loadSelectedWatchlist(name) {
     }
 }
 
-async function fetchTickers() {
-    const res = await fetch('/api/tickers');
-    const data = await res.json();
-    tickers = data.tickers || [];
-    if (tickers.length > 0) {
-        await loadTicker(0);
+async function loadSpecificTicker(ticker) {
+    document.getElementById('current-ticker-display').innerText = `Ticker: ${ticker}`;
+
+    // Sync dropdown if it exists in the current watchlist
+    const tSelect = document.getElementById('ticker-select');
+    const newIndex = tickers.indexOf(ticker);
+
+    if (newIndex !== -1) {
+        currentIndex = newIndex;
+        if (tSelect) tSelect.value = ticker;
+    }
+
+    // Fetch Chart Data
+    try {
+        const resData = await fetch(`/api/chart/${ticker}`);
+        if (!resData.ok) throw new Error("Chart data not found");
+        currentData = await resData.json();
+
+        // Cache for fast crosshair lookup
+        dataCache.clear();
+        currentData.forEach(d => dataCache.set(d.time, d));
+
+        // Fetch Annotations
+        const resAnno = await fetch(`/api/annotations/${ticker}`);
+        annotations = await resAnno.json();
+
+        renderChart();
+        renderTable();
+    } catch (e) {
+        console.error("Failed to load specific ticker:", e);
     }
 }
 
@@ -342,28 +380,7 @@ async function loadTicker(index) {
     if (index < 0 || index >= tickers.length) return;
     currentIndex = index;
     const ticker = tickers[currentIndex];
-    document.getElementById('current-ticker-display').innerText = `Ticker: ${ticker}`;
-
-    // Sync dropdown
-    const tSelect = document.getElementById('ticker-select');
-    if (tSelect && tSelect.value !== ticker) {
-        tSelect.value = ticker;
-    }
-
-    // Fetch Chart Data
-    const resData = await fetch(`/api/chart/${ticker}`);
-    currentData = await resData.json();
-
-    // Cache for fast crosshair lookup
-    dataCache.clear();
-    currentData.forEach(d => dataCache.set(d.time, d));
-
-    // Fetch Annotations
-    const resAnno = await fetch(`/api/annotations/${ticker}`);
-    annotations = await resAnno.json();
-
-    renderChart();
-    renderTable();
+    await loadSpecificTicker(ticker);
 }
 
 async function saveAnnotations() {
@@ -593,7 +610,7 @@ function setupEventListeners() {
         }
     });
 
-    // Dropdowns
+    // Dropdowns and Search
     document.getElementById('watchlist-select').addEventListener('change', async (e) => {
         await loadSelectedWatchlist(e.target.value);
     });
@@ -603,6 +620,53 @@ function setupEventListeners() {
         const newIndex = tickers.indexOf(selectedTicker);
         if (newIndex !== -1) {
             await loadTicker(newIndex);
+        }
+    });
+
+    document.getElementById('ticker-search').addEventListener('input', (e) => {
+        const searchValue = e.target.value.toUpperCase();
+        const datalist = document.getElementById('ticker-datalist');
+
+        datalist.innerHTML = ''; // Always clear first
+
+        // Only populate if there's at least one character typed
+        if (searchValue.length > 0) {
+            // Find matches that contain the search string
+            const matches = allTickers.filter(t => t.includes(searchValue));
+            // Limit to prevent DOM overload on a massive list
+            const limit = Math.min(matches.length, 50);
+
+            for (let i = 0; i < limit; i++) {
+                const opt = document.createElement('option');
+                opt.value = matches[i];
+                datalist.appendChild(opt);
+            }
+        }
+    });
+
+    document.getElementById('ticker-search').addEventListener('change', async (e) => {
+        const searchValue = e.target.value.toUpperCase();
+        e.target.value = searchValue; // Force uppercase in input
+
+        if (searchValue.length === 0) return;
+
+        // Try exact match first
+        if (allTickers.includes(searchValue)) {
+            await loadSpecificTicker(searchValue);
+            e.target.value = ''; // clear upon successful load
+            document.getElementById('ticker-datalist').innerHTML = '';
+        } else {
+            // If not an exact match, check if there is exactly ONE partial match
+            const matches = allTickers.filter(t => t.includes(searchValue));
+            if (matches.length === 1) {
+                // Auto-select the single match (e.g., when the user hits Enter early)
+                await loadSpecificTicker(matches[0]);
+                e.target.value = ''; // clear upon successful load
+                document.getElementById('ticker-datalist').innerHTML = '';
+            } else {
+                console.log(`[DataFetcher Stub] Ticker '${searchValue}' not found exactly locally, and no unique match. Placeholder for DataFetcher module.`);
+                // Currently do nothing visually. Will be handled by future DataFetcher module.
+            }
         }
     });
 

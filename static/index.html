@@ -96,15 +96,20 @@
                     <button type="button" class="btn btn-outline-info btn-sm btn-tf" data-days="90">90D</button>
                 </div>
 
-                <!-- Dropdowns -->
+                <!-- Dropdowns and Search -->
                 <select id="watchlist-select" class="form-select form-select-sm"
-                    style="width: 28ch; font-size: inherit; background-color: #333; color: white; border-color: #555;"
+                    style="width: 22ch; font-size: inherit; background-color: #333; color: white; border-color: #555;"
                     title="Select Watchlist">
                 </select>
                 <select id="ticker-select" class="form-select form-select-sm"
                     style="width: 8ch; font-size: inherit; background-color: #333; color: white; border-color: #555;"
                     title="Select Ticker">
                 </select>
+                <input type="text" id="ticker-search" list="ticker-datalist" class="form-control form-control-sm ms-2"
+                    placeholder="🔍"
+                    style="width: 7ch; font-size: inherit; background-color: #333; color: white; border-color: #555;"
+                    title="Search local tickers">
+                <datalist id="ticker-datalist"></datalist>
 
                 <!-- Toggles -->
                 <div class="form-check form-switch ms-2">
