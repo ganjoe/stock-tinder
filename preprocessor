@@ -1,0 +1,174 @@
+import os
+import json
+import glob
+import pandas as pd
+import pandas_ta as ta
+import numpy as np
+
+# =====================================================================
+# KONFIGURATION & SETUP
+# =====================================================================
+DATA_BASE_DIR = "./data"
+MARKET_DIR = os.path.join(DATA_BASE_DIR, "market_cache")
+PARQUET_OUT = os.path.join(DATA_BASE_DIR, "features.parquet")
+
+# ---------------------------------------------------------------------
+# DAS REZEPTBUCH (Open-Closed Principle)
+# ---------------------------------------------------------------------
+# Willst du einen Indikator hinzufügen/entfernen, mach es NUR hier!
+# path: Bestimmt die Baumstruktur in der indikator.json UND den Spaltennamen im Parquet
+# type: Die Rechenlogik, die weiter unten im Dispatcher aufgerufen wird
+# kwargs: Parameter für die Berechnung (z.B. Länge)
+INDICATOR_CONFIG = [
+    {"path": ["stock", "ma", "sma", "10"], "type": "sma_dist", "kwargs": {"length": 10}},
+    {"path": ["stock", "ma", "sma", "20"], "type": "sma_dist", "kwargs": {"length": 20}},
+    {"path": ["stock", "ma", "sma", "50"], "type": "sma_dist", "kwargs": {"length": 50}},
+    
+    {"path": ["stock", "ma", "ema", "10"], "type": "ema_dist", "kwargs": {"length": 10}},
+    {"path": ["stock", "ma", "ema", "20"], "type": "ema_dist", "kwargs": {"length": 20}},
+    {"path": ["stock", "ma", "ema", "50"], "type": "ema_dist", "kwargs": {"length": 50}},
+    
+    {"path": ["stock", "stoch", "10", "1"], "type": "stoch_k", "kwargs": {"k": 10, "d": 1, "smooth_k": 1}},
+    
+    {"path": ["stock", "adr%"], "type": "adr_pct", "kwargs": {"length": 20}},
+    {"path": ["stock", "atr%"], "type": "atr_pct", "kwargs": {"length": 14}},
+    
+    {"path": ["volume", "ma", "50"], "type": "vol_ma", "kwargs": {"length": 50}},
+    {"path": ["volume", "ratio", "50"], "type": "vol_ratio", "kwargs": {"length": 50}}
+]
+
+# =====================================================================
+# ENGINE: BERECHNUNGSLOGIK (Der Dispatcher)
+# =====================================================================
+def calculate_feature(df, config_item):
+    """Berechnet einen spezifischen Indikator basierend auf der Config."""
+    ind_type = config_item["type"]
+    kwargs = config_item["kwargs"]
+    
+    # 1. Moving Averages als PROZENTUALER ABSTAND ((Close - MA) / MA)
+    if ind_type == "sma_dist":
+        ma = ta.sma(df["c"], length=kwargs["length"])
+        return (df["c"] - ma) / ma
+        
+    elif ind_type == "ema_dist":
+        ma = ta.ema(df["c"], length=kwargs["length"])
+        return (df["c"] - ma) / ma
+        
+    # 2. Oszillatoren
+    elif ind_type == "stoch_k":
+        # pandas_ta gibt einen DataFrame für Stochastik zurück, wir wollen nur die %K Linie
+        stoch_df = ta.stoch(high=df["h"], low=df["l"], close=df["c"], 
+                            k=kwargs["k"], d=kwargs["d"], smooth_k=kwargs["smooth_k"])
+        if stoch_df is not None and not stoch_df.empty:
+            return stoch_df.iloc[:, 0] / 100.0 # Normalisiert auf 0.0 - 1.0
+        return pd.Series(np.nan, index=df.index)
+        
+    # 3. Volatilitäts-Metriken (Prozentual zum Preis)
+    elif ind_type == "adr_pct":
+        # Average Daily Range %: ((High - Low) / Close) als gleitender Durchschnitt
+        daily_range_pct = (df["h"] - df["l"]) / df["c"]
+        return ta.sma(daily_range_pct, length=kwargs["length"])
+        
+    elif ind_type == "atr_pct":
+        # Average True Range %: ATR / Close
+        atr = ta.atr(high=df["h"], low=df["l"], close=df["c"], length=kwargs["length"])
+        return atr / df["c"]
+        
+    # 4. Volumen
+    elif ind_type == "vol_ma":
+        return ta.sma(df["v"], length=kwargs["length"])
+        
+    elif ind_type == "vol_ratio":
+        vol_ma = ta.sma(df["v"], length=kwargs["length"])
+        return df["v"] / vol_ma
+        
+    else:
+        raise ValueError(f"Unbekannter Indikator-Typ in der Config: {ind_type}")
+
+# =====================================================================
+# ENGINE: JSON BAUM & STRUKTUR
+# =====================================================================
+def insert_into_tree(tree, path, series):
+    """Baut den nested JSON-Baum rekursiv anhand des 'path' Arrays auf."""
+    # Konvertiere Pandas Series in eine Python Liste, ersetze NaNs durch None (JSON null)
+    # Runde auf 4 Nachkommastellen um Speicherplatz zu sparen
+    clean_list = [None if pd.isna(x) else round(float(x), 4) for x in series]
+    
+    current_level = tree
+    # Navigiere durch alle Knoten bis zum vorletzten
+    for key in path[:-1]:
+        if key not in current_level:
+            current_level[key] = {}
+        current_level = current_level[key]
+    
+    # Setze das Array an das finale Blatt (Leaf-Node)
+    current_level[path[-1]] = clean_list
+
+def flatten_path_to_column(path):
+    """Macht aus ['stock', 'ma', 'sma', '50'] den String 'stock_ma_sma_50'."""
+    return "_".join(path)
+
+# =====================================================================
+# MAIN LOOP (Verarbeitung aller Ticker)
+# =====================================================================
+def process_all_tickers():
+    if not os.path.exists(MARKET_DIR):
+        print(f"Fehler: Verzeichnis {MARKET_DIR} nicht gefunden.")
+        return
+
+    ticker_folders = [f.name for f in os.scandir(MARKET_DIR) if f.is_dir()]
+    print(f"Starte Feature-Engineering für {len(ticker_folders)} Ticker...")
+    
+    all_parquet_dfs = []
+
+    for ticker in ticker_folders:
+        json_path = os.path.join(MARKET_DIR, ticker, "1D.json")
+        if not os.path.exists(json_path):
+            continue
+            
+        # 1. Rohe Daten laden
+        df = pd.read_json(json_path)
+        if df.empty:
+            continue
+            
+        json_tree = {}
+        parquet_flat_df = pd.DataFrame()
+        
+        # Basis-Informationen für das ML-Modell (PyTorch) übernehmen
+        parquet_flat_df["ticker"] = ticker
+        parquet_flat_df["t"] = df["t"]
+        
+        # 2. Indikatoren berechnen (Schleife über das Rezeptbuch)
+        for config_item in INDICATOR_CONFIG:
+            # Berechnung durchführen
+            calculated_series = calculate_feature(df, config_item)
+            
+            # Für GUI: In den JSON-Baum einfügen
+            insert_into_tree(json_tree, config_item["path"], calculated_series)
+            
+            # Für ML: Als flache Spalte in das Parquet-DataFrame anfügen
+            flat_col_name = flatten_path_to_column(config_item["path"])
+            parquet_flat_df[flat_col_name] = calculated_series
+            
+        # 3. Export 1: Die indikator.json für die GUI abspeichern
+        out_json_path = os.path.join(MARKET_DIR, ticker, "indikator.json")
+        with open(out_json_path, "w") as f:
+            json.dump(json_tree, f)
+            
+        # 4. Parquet DataFrame sammeln
+        all_parquet_dfs.append(parquet_flat_df)
+        
+    # 5. Export 2: Globale Parquet Datei für PyTorch erstellen
+    if all_parquet_dfs:
+        print("Füge alle Daten zu einer globalen Parquet-Datei zusammen...")
+        final_parquet_df = pd.concat(all_parquet_dfs, ignore_index=True)
+        
+        # Speichere mit PyArrow-Engine
+        final_parquet_df.to_parquet(PARQUET_OUT, engine="pyarrow", index=False)
+        print(f"✅ Erfolgreich! Flat-File gespeichert unter: {PARQUET_OUT}")
+        print(f"Das ML-Modell hat nun {len(final_parquet_df.columns) - 2} Features zur Verfügung.")
+    else:
+        print("Keine Daten zum Verarbeiten gefunden.")
+
+if __name__ == "__main__":
+    process_all_tickers()

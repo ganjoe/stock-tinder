@@ -77,10 +77,10 @@
         </div>
 
         <!-- Controls -->
-        <div class="row mt-3 align-items-center">
-            <!-- Main Navigation & Scores -->
-            <div class="col-12 col-md-6 mb-2 mb-md-0">
-                <div class="btn-group" role="group">
+        <div class="row mt-3">
+            <div class="col-12 d-flex flex-wrap align-items-center gap-2">
+                <!-- Main Navigation & Scores -->
+                <div class="btn-group me-2" role="group">
                     <button type="button" class="btn btn-secondary btn-sm" id="btn-prev">◄ Prev</button>
                     <button type="button" class="btn btn-primary btn-sm" id="btn-next">Next ►</button>
 
@@ -95,30 +95,32 @@
                     <button type="button" class="btn btn-outline-info btn-sm btn-tf" data-days="60">60D</button>
                     <button type="button" class="btn btn-outline-info btn-sm btn-tf" data-days="90">90D</button>
                 </div>
-            </div>
 
-            <!-- All Controls in One Row -->
-            <div class="col-12 col-md-6 d-flex align-items-center justify-content-md-end flex-wrap">
                 <!-- Dropdowns -->
-                <select id="watchlist-select" class="form-select form-select-sm d-inline-block me-2"
-                    style="width: 28ch; font-size: inherit;" title="Select Watchlist">
+                <select id="watchlist-select" class="form-select form-select-sm"
+                    style="width: 28ch; font-size: inherit; background-color: #333; color: white; border-color: #555;"
+                    title="Select Watchlist">
                 </select>
-                <select id="ticker-select" class="form-select form-select-sm d-inline-block me-3"
-                    style="width: 9ch; font-size: inherit;" title="Select Ticker">
+                <select id="ticker-select" class="form-select form-select-sm"
+                    style="width: 8ch; font-size: inherit; background-color: #333; color: white; border-color: #555;"
+                    title="Select Ticker">
                 </select>
-                <div class="form-check form-switch d-inline-block me-3">
+
+                <!-- Toggles -->
+                <div class="form-check form-switch ms-2">
                     <input class="form-check-input" type="checkbox" role="switch" id="table-toggle" checked>
                     <label class="form-check-label" for="table-toggle">📊 Table</label>
                 </div>
-                <div class="form-check form-switch d-inline-block me-3">
+                <div class="form-check form-switch ms-2">
                     <input class="form-check-input" type="checkbox" role="switch" id="autoscale-toggle" checked>
                     <label class="form-check-label" for="autoscale-toggle">📐 Auto</label>
                 </div>
-                <div class="form-check form-switch d-inline-block me-4">
+                <div class="form-check form-switch ms-2 me-2">
                     <input class="form-check-input" type="checkbox" role="switch" id="select-mode-toggle">
                     <label class="form-check-label" for="select-mode-toggle" class="text-warning">👆 Select</label>
                 </div>
 
+                <!-- Radios -->
                 <div class="form-check form-check-inline mb-0">
                     <input class="form-check-input" type="radio" name="viewToggle" id="viewHuman" value="human" checked>
                     <label class="form-check-label" for="viewHuman">Human</label>
