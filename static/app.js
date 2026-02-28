@@ -151,10 +151,12 @@ function renderChart() {
     // Draw Annotations (as colored background ranges or lines)
     drawAnnotations();
 
-    // Auto-scale
-    if (document.getElementById('autoscale-toggle').checked) {
-        chart.timeScale().fitContent();
-    }
+    // Auto-scale logic
+    const isAuto = document.getElementById('autoscale-toggle').checked;
+    candlestickSeries.priceScale().applyOptions({ autoScale: isAuto });
+
+    // Always fit content on new load so the new ticker is fully visible
+    chart.timeScale().fitContent();
 }
 
 function drawAnnotations() {
@@ -351,7 +353,10 @@ function setupEventListeners() {
 
     // Autoscale Toggle
     document.getElementById('autoscale-toggle').addEventListener('change', (e) => {
-        if (e.target.checked) {
+        const isAuto = e.target.checked;
+        candlestickSeries.priceScale().applyOptions({ autoScale: isAuto });
+        if (isAuto) {
+            // Optional: reset the view slightly if turning back on so it snaps
             chart.timeScale().fitContent();
         }
     });
