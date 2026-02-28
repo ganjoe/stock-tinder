@@ -31,8 +31,8 @@ app.mount("/app", StaticFiles(directory="static", html=True), name="static")
 # MODELS
 # =====================================================================
 class Annotation(BaseModel):
-    start: str
-    end: str
+    start: int
+    end: int
     pattern: str
     score: int
 
