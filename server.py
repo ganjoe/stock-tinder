@@ -8,6 +8,7 @@ import glob
 import pandas as pd
 import threading
 from collections import defaultdict
+import re
 
 # =====================================================================
 # CONFIGURATION
@@ -142,6 +143,36 @@ async def api_post_annotations(ticker: str, payload: AnnotationPayload):
     if not success:
         raise HTTPException(status_code=500, detail="Failed to save annotations")
     return {"status": "success"}
+
+@app.get("/api/watchlists")
+async def api_get_watchlists():
+    watchlist_dir = "./data/watchlist"
+    if not os.path.exists(watchlist_dir):
+        return {"watchlists": []}
+    
+    files = [f for f in os.listdir(watchlist_dir) if f.endswith(".txt")]
+    watchlists = [f.replace(".txt", "") for f in files]
+    return {"watchlists": sorted(watchlists)}
+
+@app.get("/api/watchlist/{watchlist_name}")
+async def api_get_watchlist_tickers(watchlist_name: str):
+    filepath = os.path.join("./data/watchlist", f"{watchlist_name}.txt")
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+        
+    try:
+        with open(filepath, 'r') as f:
+            content = f.read()
+            
+        # Split by ;, space, tab, newline
+        tickers = [t.strip() for t in re.split(r'[;\s]+', content) if t.strip()]
+        
+        # Use dict.fromkeys to remove duplicates while preserving order
+        unique_tickers = list(dict.fromkeys(tickers))
+        
+        return {"tickers": unique_tickers}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error parsing watchlist: {e}")
 
 if __name__ == "__main__":
     import uvicorn

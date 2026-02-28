@@ -3,6 +3,8 @@
 // =====================================
 let tickers = [];
 let currentIndex = 0;
+let watchlists = [];
+let currentWatchlist = null;
 let chart = null;
 let volumeChart = null;
 let candlestickSeries = null;
@@ -25,7 +27,7 @@ const COLOR_BOT = 'rgba(0, 0, 255, 0.2)';
 // =====================================
 document.addEventListener("DOMContentLoaded", async () => {
     initChart();
-    await fetchTickers();
+    await fetchWatchlists();
     setupEventListeners();
 });
 
@@ -272,6 +274,61 @@ function drawSelectionMarkers() {
 // =====================================
 // API CALLS
 // =====================================
+async function fetchWatchlists() {
+    const res = await fetch('/api/watchlists');
+    const data = await res.json();
+    watchlists = data.watchlists || [];
+
+    const wsSelect = document.getElementById('watchlist-select');
+    wsSelect.innerHTML = '';
+
+    if (watchlists.length === 0) {
+        // Fallback to old behavior if no watchlists
+        await fetchTickers();
+        return;
+    }
+
+    watchlists.forEach(ws => {
+        const opt = document.createElement('option');
+        opt.value = ws;
+        opt.textContent = ws;
+        wsSelect.appendChild(opt);
+    });
+
+    // Load first watchlist
+    wsSelect.value = watchlists[0];
+    await loadSelectedWatchlist(watchlists[0]);
+}
+
+async function loadSelectedWatchlist(name) {
+    currentWatchlist = name;
+
+    const res = await fetch(`/api/watchlist/${name}`);
+    const data = await res.json();
+
+    // Overwrite the global tickers array to restrict Prev/Next navigation
+    tickers = data.tickers || [];
+
+    const tSelect = document.getElementById('ticker-select');
+    tSelect.innerHTML = '';
+
+    tickers.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = t;
+        tSelect.appendChild(opt);
+    });
+
+    if (tickers.length > 0) {
+        await loadTicker(0);
+    } else {
+        // Clear chart if empty
+        document.getElementById('current-ticker-display').innerText = `Ticker: NONE (Empty Watchlist)`;
+        if (candlestickSeries) candlestickSeries.setData([]);
+        if (volumeSeries) volumeSeries.setData([]);
+    }
+}
+
 async function fetchTickers() {
     const res = await fetch('/api/tickers');
     const data = await res.json();
@@ -286,6 +343,12 @@ async function loadTicker(index) {
     currentIndex = index;
     const ticker = tickers[currentIndex];
     document.getElementById('current-ticker-display').innerText = `Ticker: ${ticker}`;
+
+    // Sync dropdown
+    const tSelect = document.getElementById('ticker-select');
+    if (tSelect && tSelect.value !== ticker) {
+        tSelect.value = ticker;
+    }
 
     // Fetch Chart Data
     const resData = await fetch(`/api/chart/${ticker}`);
@@ -529,6 +592,20 @@ function setupEventListeners() {
             updateLayout();
         }
     });
+
+    // Dropdowns
+    document.getElementById('watchlist-select').addEventListener('change', async (e) => {
+        await loadSelectedWatchlist(e.target.value);
+    });
+
+    document.getElementById('ticker-select').addEventListener('change', async (e) => {
+        const selectedTicker = e.target.value;
+        const newIndex = tickers.indexOf(selectedTicker);
+        if (newIndex !== -1) {
+            await loadTicker(newIndex);
+        }
+    });
+
     // Navigation
     document.getElementById('btn-prev').addEventListener('click', () => loadTicker((currentIndex - 1 + tickers.length) % tickers.length));
     document.getElementById('btn-next').addEventListener('click', () => loadTicker((currentIndex + 1) % tickers.length));
