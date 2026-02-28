@@ -57,7 +57,14 @@
         <!-- Chart -->
         <div class="row mt-2">
             <div class="col-12">
-                <div id="chart-container"></div>
+                <div id="chart-wrapper" style="display: flex; flex-direction: column; height: 60vh;">
+                    <div id="price-chart-container" style="flex: 1 1 auto; min-height: 150px; position: relative;">
+                    </div>
+                    <div id="chart-resizer" style="height: 5px; background: #444; cursor: row-resize; z-index: 10;">
+                    </div>
+                    <div id="volume-chart-container"
+                        style="height: 150px; flex: 0 0 auto; min-height: 50px; position: relative;"></div>
+                </div>
             </div>
         </div>
 

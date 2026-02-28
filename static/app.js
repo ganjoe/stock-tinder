@@ -4,9 +4,11 @@
 let tickers = [];
 let currentIndex = 0;
 let chart = null;
+let volumeChart = null;
 let candlestickSeries = null;
 let volumeSeries = null;
 let currentData = [];
+let dataCache = new Map();
 let annotations = { human_annotations: [], ai_predictions: [] };
 let annotationLines = [];
 
@@ -27,7 +29,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 function initChart() {
-    const container = document.getElementById('chart-container');
+    const priceContainer = document.getElementById('price-chart-container');
+    const volumeContainer = document.getElementById('volume-chart-container');
 
     // Ensure LightweightCharts is loaded
     if (typeof window.LightweightCharts === 'undefined') {
@@ -35,9 +38,9 @@ function initChart() {
         return;
     }
 
-    chart = window.LightweightCharts.createChart(container, {
-        width: container.clientWidth,
-        height: container.clientHeight,
+    chart = window.LightweightCharts.createChart(priceContainer, {
+        width: priceContainer.clientWidth,
+        height: priceContainer.clientHeight,
         layout: {
             background: { type: 'solid', color: '#121212' },
             textColor: '#d1d4dc',
@@ -53,6 +56,7 @@ function initChart() {
             borderColor: 'rgba(197, 203, 206, 0.8)',
         },
         timeScale: {
+            visible: false,
             borderColor: 'rgba(197, 203, 206, 0.8)',
             timeVisible: false,
         },
@@ -75,25 +79,147 @@ function initChart() {
         lastValueVisible: false,
     });
 
-    volumeSeries = chart.addHistogramSeries({
+    volumeChart = window.LightweightCharts.createChart(volumeContainer, {
+        width: volumeContainer.clientWidth,
+        height: volumeContainer.clientHeight,
+        layout: {
+            background: { type: 'solid', color: '#121212' },
+            textColor: '#d1d4dc',
+        },
+        grid: {
+            vertLines: { color: 'rgba(42, 46, 57, 0.5)' },
+            horzLines: { color: 'rgba(42, 46, 57, 0.5)' },
+        },
+        crosshair: {
+            mode: 1, // Normal mode
+        },
+        rightPriceScale: {
+            visible: true,
+            autoScale: true,
+            borderColor: 'rgba(197, 203, 206, 0.8)',
+            scaleMargins: {
+                top: 0.1,
+                bottom: 0, // Keep volume at bottom, preventing negative labels
+            },
+        },
+        timeScale: {
+            visible: true,
+            borderColor: 'rgba(197, 203, 206, 0.8)',
+            timeVisible: false,
+            minBarSpacing: 0.5, // Increase density
+            tickMarkFormatter: (time, tickMarkType, locale) => {
+                const date = new Date(time * 1000);
+                const month = date.toLocaleString('en-US', { month: 'short' });
+                const year = date.getFullYear().toString().slice(-2);
+                return `${month} '${year}`;
+            },
+        },
+        handleScale: {
+            axisPressedMouseMove: {
+                time: true,
+                price: true,
+            },
+        },
+        handleScroll: {
+            mouseWheel: true,
+            pressedMouseMove: true,
+        },
+    });
+
+    volumeSeries = volumeChart.addHistogramSeries({
         color: '#26a69a',
         priceFormat: {
             type: 'volume',
         },
-        priceScaleId: '',
+        priceScaleId: 'right', // Explicitly use right scale to enable labels and dragging
+    });
+
+    // Ensure the volume scale doesn't show negative values and has a 0 baseline
+    volumeSeries.priceScale().applyOptions({
+        autoScale: true,
         scaleMargins: {
-            top: 0.8,
-            bottom: 0,
+            top: 0.1,
+            bottom: 0.05, // Small margin to ensure the 0 label has room
         },
     });
 
     // Handle Resize
     window.addEventListener('resize', () => {
-        if (chart && container) {
+        if (chart && priceContainer) {
             chart.applyOptions({
-                width: container.clientWidth,
-                height: container.clientHeight
+                width: priceContainer.clientWidth,
+                height: priceContainer.clientHeight
             });
+        }
+        if (volumeChart && volumeContainer) {
+            volumeChart.applyOptions({
+                width: volumeContainer.clientWidth,
+                height: volumeContainer.clientHeight
+            });
+        }
+    });
+
+    // Task T-003: Sync Time Scales
+    chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+        if (range) volumeChart.timeScale().setVisibleLogicalRange(range);
+    });
+    volumeChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+        if (range) chart.timeScale().setVisibleLogicalRange(range);
+    });
+
+    // Task T-003: Sync Crosshairs
+    function syncCrosshair(param, targetChart, targetSeries) {
+        if (!param.time) {
+            targetChart.clearCrosshairPosition();
+            return;
+        }
+        let price = null;
+        const d = dataCache.get(param.time);
+        if (d) {
+            if (targetSeries === candlestickSeries) price = d.close;
+            else if (targetSeries === volumeSeries) price = d.value;
+        }
+        if (price !== null) {
+            targetChart.setCrosshairPosition(price, param.time, targetSeries);
+        } else {
+            targetChart.clearCrosshairPosition();
+        }
+    }
+
+    chart.subscribeCrosshairMove(param => syncCrosshair(param, volumeChart, volumeSeries));
+    volumeChart.subscribeCrosshairMove(param => syncCrosshair(param, chart, candlestickSeries));
+
+    // Task T-004: Implement Resizer Drag Logic
+    const resizer = document.getElementById('chart-resizer');
+    const wrapper = document.getElementById('chart-wrapper');
+    let isResizing = false;
+
+    resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        document.body.style.cursor = 'row-resize';
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        const wrapperRect = wrapper.getBoundingClientRect();
+        let newVolumeHeight = wrapperRect.bottom - e.clientY;
+
+        // Limits
+        if (newVolumeHeight < 50) newVolumeHeight = 50;
+        if (newVolumeHeight > wrapperRect.height - 150) newVolumeHeight = wrapperRect.height - 150;
+
+        volumeContainer.style.height = `${newVolumeHeight}px`;
+
+        // Adjust charts
+        chart.applyOptions({ width: priceContainer.clientWidth, height: priceContainer.clientHeight });
+        volumeChart.applyOptions({ width: volumeContainer.clientWidth, height: volumeContainer.clientHeight });
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            document.body.style.cursor = 'default';
         }
     });
 
@@ -156,6 +282,10 @@ async function loadTicker(index) {
     const resData = await fetch(`/api/chart/${ticker}`);
     currentData = await resData.json();
 
+    // Cache for fast crosshair lookup
+    dataCache.clear();
+    currentData.forEach(d => dataCache.set(d.time, d));
+
     // Fetch Annotations
     const resAnno = await fetch(`/api/annotations/${ticker}`);
     annotations = await resAnno.json();
@@ -211,6 +341,7 @@ function renderChart() {
 
     // Always fit content on new load so the new ticker is fully visible
     chart.timeScale().fitContent();
+    if (volumeChart) volumeChart.timeScale().fitContent();
 }
 
 function drawAnnotations() {
