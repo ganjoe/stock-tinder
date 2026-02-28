@@ -431,9 +431,5 @@ function setupEventListeners() {
     document.getElementById('autoscale-toggle').addEventListener('change', (e) => {
         const isAuto = e.target.checked;
         candlestickSeries.priceScale().applyOptions({ autoScale: isAuto });
-        if (isAuto) {
-            // Optional: reset the view slightly if turning back on so it snaps
-            chart.timeScale().fitContent();
-        }
     });
 }
