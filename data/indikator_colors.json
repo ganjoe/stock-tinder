@@ -1,4 +1,11 @@
 {
+    "_options_documentation": {
+        "color": "Any CSS color, #HEX code, or key from 'aliases'",
+        "thickness": "Number > 0 (e.g. 1, 2)",
+        "style": "Line style: 'solid', 'dashed', or 'dotted'",
+        "type": "Target pane category: 'price', 'vol', 'norm', 'norm_abs', 'pct_abs', 'pct', 'abs'",
+        "chart_type": "Optional render type (overrides category default): 'line', 'bar', 'scatter'"
+    },
     "aliases": {
         "blue": "#0000FF",
         "red": "#FF0000",
@@ -13,53 +20,89 @@
         "gray": "#808080"
     },
     "indicators": {
-        "ma_sma_10": {
-            "color": "blue",
-            "thickness": 2,
-            "style": "solid",
-            "type": "price"
-        },
-        "ma_sma_20": {
+        "ma_sma_50": {
             "color": "cyan",
             "thickness": 2,
-            "style": "dotted",
-            "type": "price"
-        },
-        "ma_sma_50": {
-            "color": "orange",
-            "thickness": 3,
             "style": "solid",
-            "type": "price"
+            "type": "price",
+            "chart_type": "line"
         },
-        "ma_ema_10": {
-            "color": "magenta",
-            "thickness": 2,
-            "style": "solid",
-            "type": "price"
-        },
-        "ma_ema_20": {
-            "color": "yellow",
-            "thickness": 2,
-            "style": "solid",
-            "type": "price"
-        },
-        "ma_ema_50": {
+        "ma_sma_200": {
             "color": "white",
             "thickness": 2,
             "style": "solid",
-            "type": "price"
+            "type": "price",
+            "chart_type": "line"
         },
-        "adr%": {
-            "color": "purple",
+        "ma_ema_50": {
+            "color": "orange",
+            "thickness": 2,
+            "style": "solid",
+            "type": "price",
+            "chart_type": "line"
+        },
+        "ma_sma_price_50": {
+            "color": "magenta",
             "thickness": 1,
             "style": "dashed",
-            "type": "pct"
+            "type": "price",
+            "chart_type": "line"
         },
-        "stoch": {
+        "ma_ema_price_50": {
             "color": "yellow",
             "thickness": 1,
             "style": "dashed",
-            "type": "norm_abs"
+            "type": "price",
+            "chart_type": "line"
+        },
+        "adr_pct": {
+            "color": "purple",
+            "thickness": 1,
+            "style": "solid",
+            "type": "pct",
+            "chart_type": "line"
+        },
+        "atr_pct": {
+            "color": "blue",
+            "thickness": 1,
+            "style": "solid",
+            "type": "pct",
+            "chart_type": "line"
+        },
+        "adr": {
+            "color": "red",
+            "thickness": 1,
+            "style": "solid",
+            "type": "abs",
+            "chart_type": "line"
+        },
+        "atr": {
+            "color": "green",
+            "thickness": 1,
+            "style": "solid",
+            "type": "abs",
+            "chart_type": "line"
+        },
+        "stoch_10_1": {
+            "color": "yellow",
+            "thickness": 1,
+            "style": "solid",
+            "type": "norm_abs",
+            "chart_type": "line"
+        },
+        "ma_50": {
+            "color": "white",
+            "thickness": 1,
+            "style": "dashed",
+            "type": "vol",
+            "chart_type": "line"
+        },
+        "ratio_50": {
+            "color": "cyan",
+            "thickness": 2,
+            "style": "solid",
+            "type": "norm",
+            "chart_type": "bar"
         }
     }
 }

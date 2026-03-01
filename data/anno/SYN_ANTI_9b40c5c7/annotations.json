@@ -1,0 +1,11 @@
+{
+    "human_annotations": [
+        {
+            "start": 1549299554,
+            "end": 1554569954,
+            "pattern": "vcp",
+            "score": 1
+        }
+    ],
+    "ai_predictions": []
+}

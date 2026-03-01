@@ -44,6 +44,10 @@ let selectionRange = { start: null, end: null };
 // Store pane heights to persist across ticker changes
 let storedPaneHeights = {}; // category -> pixel height (for non-price panes)
 
+// Sync-Management
+let isSyncingTime = false;
+let isSyncingCrosshair = false;
+
 const COLOR_HUMAN = 'rgba(0, 255, 0, 0.2)';
 const COLOR_BOT = 'rgba(0, 0, 255, 0.2)';
 
@@ -135,6 +139,8 @@ function initCharts() {
         crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false,
     });
 
+    const priceBaselineSeries = priceChart.addLineSeries({ color: 'transparent', lineWidth: 0, crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false });
+
     paneRegistry.set('price', {
         category: 'price',
         containerId: 'price-chart-container',
@@ -142,8 +148,10 @@ function initCharts() {
         isVisible: true,
         orderIndex: 0,
         primarySeries: candlestickSeries,
+        baselineSeries: priceBaselineSeries,
         resizerId: null,
     });
+    subscribeToSync('price', priceChart, candlestickSeries);
 
     // ---- VOLUME PANE ----
     const volumeContainer = document.getElementById('volume-chart-container');
@@ -177,6 +185,8 @@ function initCharts() {
         scaleMargins: { top: 0.1, bottom: 0.05 },
     });
 
+    const volBaselineSeries = volumeChart.addLineSeries({ color: 'transparent', lineWidth: 0, crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false });
+
     paneRegistry.set('vol', {
         category: 'vol',
         containerId: 'volume-chart-container',
@@ -184,29 +194,12 @@ function initCharts() {
         isVisible: true,
         orderIndex: 9999,
         primarySeries: volumeSeries,
+        baselineSeries: volBaselineSeries,
         resizerId: 'vol-resizer',
     });
+    subscribeToSync('vol', volumeChart, volumeSeries);
 
-    // ---- Time Sync between all panes ----
-    syncTimeScales();
-
-    // ---- Crosshair Sync (price <-> vol) ----
-    function syncCrosshair(param, targetChart, targetSeries) {
-        if (!param.time) { targetChart.clearCrosshairPosition(); return; }
-        let price = null;
-        const d = dataCache.get(param.time);
-        if (d) {
-            if (targetSeries === candlestickSeries) price = d.close;
-            else if (targetSeries === volumeSeries) price = d.value;
-        }
-        if (price !== null) {
-            targetChart.setCrosshairPosition(price, param.time, targetSeries);
-        } else {
-            targetChart.clearCrosshairPosition();
-        }
-    }
-    priceChart.subscribeCrosshairMove(param => syncCrosshair(param, volumeChart, volumeSeries));
-    volumeChart.subscribeCrosshairMove(param => syncCrosshair(param, priceChart, candlestickSeries));
+    // Crosshair Sync is now handled via subscribeToSync
 
     // ---- Window Resize ----
     window.addEventListener('resize', () => resizeAllPanes());
@@ -290,6 +283,8 @@ function createPane(category) {
         },
     });
 
+    const baselineSeries = chartInstance.addLineSeries({ color: 'transparent', lineWidth: 0, crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false });
+
     const paneState = {
         category,
         containerId: container.id,
@@ -297,12 +292,15 @@ function createPane(category) {
         isVisible: true,
         orderIndex: paneOrderCounter++,
         primarySeries: null,
+        baselineSeries: baselineSeries,
     };
 
     paneRegistry.set(category, paneState);
+    subscribeToSync(category, chartInstance, null);
 
-    // Sync timescales
-    syncTimeScales();
+    if (currentData && currentData.length > 0) {
+        baselineSeries.setData(currentData.map(d => ({ time: d.time, value: 0 })));
+    }
 
     return paneState;
 }
@@ -377,26 +375,61 @@ function removeIndicatorsForCategory(category) {
 // TIME SCALE SYNC
 // =====================================
 
+function subscribeToSync(sourceCategory, sourceChart, sourceSeries) {
+    // ---- TIME SCALE SYNC ----
+    sourceChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+        if (isSyncingTime || !range) return;
+        isSyncingTime = true;
+
+        paneRegistry.forEach((p, cat) => {
+            if (cat !== sourceCategory && p.isVisible && p.chartInstance) {
+                p.chartInstance.timeScale().setVisibleLogicalRange(range);
+            }
+        });
+
+        isSyncingTime = false;
+    });
+
+    // ---- CROSSHAIR SYNC ----
+    sourceChart.subscribeCrosshairMove(param => {
+        if (isSyncingCrosshair) return;
+        isSyncingCrosshair = true;
+
+        paneRegistry.forEach((targetPane, targetCat) => {
+            if (targetCat === sourceCategory || !targetPane.isVisible || !targetPane.chartInstance) return;
+
+            if (!param.time) {
+                targetPane.chartInstance.clearCrosshairPosition();
+                return;
+            }
+
+            let price = null;
+            if (targetPane.primarySeries) {
+                const d = dataCache.get(param.time);
+                if (d) {
+                    if (targetCat === 'price') price = d.close;
+                    else if (targetCat === 'vol') price = d.value;
+                }
+            }
+            targetPane.chartInstance.setCrosshairPosition(price || 0, param.time, targetPane.primarySeries || null);
+        });
+
+        isSyncingCrosshair = false;
+    });
+}
+
 function syncTimeScales() {
+    // Legacy / manual trigger
     const allPanes = Array.from(paneRegistry.values()).filter(p => p.isVisible && p.chartInstance);
     if (allPanes.length < 2) return;
+    const range = allPanes[0].chartInstance.timeScale().getVisibleLogicalRange();
+    if (!range) return;
 
-    // Remove old subscriptions by re-subscribing (LightweightCharts doesn't have unsubscribe easily)
-    // We use a debounce flag to prevent loops
-    let isSyncing = false;
-
-    allPanes.forEach(pane => {
-        pane.chartInstance.timeScale().subscribeVisibleLogicalRangeChange(range => {
-            if (isSyncing || !range) return;
-            isSyncing = true;
-            allPanes.forEach(otherPane => {
-                if (otherPane !== pane && otherPane.chartInstance) {
-                    try { otherPane.chartInstance.timeScale().setVisibleLogicalRange(range); } catch (e) { }
-                }
-            });
-            isSyncing = false;
-        });
+    isSyncingTime = true;
+    allPanes.forEach(p => {
+        p.chartInstance.timeScale().setVisibleLogicalRange(range);
     });
+    isSyncingTime = false;
 }
 
 // =====================================
@@ -578,26 +611,7 @@ function renderIndicatorDropdown() {
 
     if (!currentIndicatorData) return;
 
-    // Traverse the indicator data to find all leaf arrays
-    const indicators = [];
-    function traverse(obj, currentPath, sourceType) {
-        if (Array.isArray(obj)) {
-            const indicatorName = currentPath.slice(1).join('_');
-            const fullName = currentPath.join('_');
-            indicators.push({ indicatorName, fullName, sourceType, dataArray: obj });
-            return;
-        }
-        if (typeof obj === 'object' && obj !== null) {
-            for (const key in obj) {
-                traverse(obj[key], currentPath.concat(key), sourceType);
-            }
-        }
-    }
-
-    Object.keys(currentIndicatorData).forEach(key => {
-        const sourceType = key === 'volume' ? 'volume' : 'stock';
-        traverse(currentIndicatorData[key], [key], sourceType);
-    });
+    const indicators = extractIndicatorLeaves(currentIndicatorData);
 
     // Group by category
     const grouped = {};
@@ -652,11 +666,35 @@ function renderIndicatorDropdown() {
 // INDICATOR MANAGEMENT
 // =====================================
 
+function extractIndicatorLeaves(indicatorData) {
+    const leaves = [];
+    if (!indicatorData || typeof indicatorData !== 'object') return leaves;
+
+    function traverse(obj, currentPath, sourceType) {
+        if (Array.isArray(obj)) {
+            const indicatorName = currentPath.slice(1).join('_');
+            const fullName = currentPath.join('_');
+            leaves.push({ indicatorName, fullName, sourceType, dataArray: obj });
+            return;
+        }
+        if (typeof obj === 'object' && obj !== null) {
+            for (const key in obj) {
+                traverse(obj[key], currentPath.concat(key), sourceType);
+            }
+        }
+    }
+
+    Object.keys(indicatorData).forEach(key => {
+        const sourceType = key === 'volume' ? 'volume' : 'stock';
+        traverse(indicatorData[key], [key], sourceType);
+    });
+
+    return leaves;
+}
+
 function getIndicatorConfig(labelName, sourceType) {
-    // Exact match first
     let matched = indicatorStyleConfig.indicators && indicatorStyleConfig.indicators[labelName];
 
-    // If no exact match, try prefix matching (e.g. "stoch_10_1" matches config key "stoch")
     if (!matched && indicatorStyleConfig.indicators) {
         for (const key of Object.keys(indicatorStyleConfig.indicators)) {
             if (labelName.startsWith(key + '_') || labelName === key) {
@@ -668,7 +706,6 @@ function getIndicatorConfig(labelName, sourceType) {
 
     const conf = matched ? { ...matched } : {};
 
-    // Determine category - default based on source: volume -> 'vol', stock -> 'price'
     let cat = conf.type || (sourceType === 'volume' ? 'vol' : 'price');
     if (!PANE_CATEGORIES.includes(cat)) {
         console.warn(`[Indicator] "${labelName}" has unknown type "${cat}", defaulting to "price".`);
@@ -676,9 +713,8 @@ function getIndicatorConfig(labelName, sourceType) {
     }
     conf._category = cat;
 
-    // Determine chart_type - respect explicit config, else use category default
     if (!conf.chart_type) {
-        conf.chart_type = (CATEGORY_DEFAULTS[cat] || CATEGORY_DEFAULTS.abs).chart_type;
+        conf.chart_type = (CATEGORY_DEFAULTS[cat] || { chart_type: 'line' }).chart_type;
     }
 
     return conf;
@@ -879,6 +915,13 @@ async function loadSpecificTicker(ticker) {
         dataCache.clear();
         currentData.forEach(d => dataCache.set(d.time, d));
 
+        const baselineData = currentData.map(d => ({ time: d.time, value: 0 }));
+        paneRegistry.forEach(pane => {
+            if (pane.baselineSeries) {
+                pane.baselineSeries.setData(baselineData);
+            }
+        });
+
         const resAnno = await fetch(`/api/annotations/${ticker}`);
         annotations = await resAnno.json();
 
@@ -962,25 +1005,11 @@ function redrawActiveIndicators() {
     if (!currentIndicatorData) return;
 
     // Re-traverse and re-draw active ones
-    function traverse(obj, currentPath, srcType) {
-        if (Array.isArray(obj)) {
-            const indicatorName = currentPath.slice(1).join('_');
-            const fullName = currentPath.join('_');
-            if (activeIndicators.has(indicatorName)) {
-                drawIndicatorSeries(indicatorName, fullName, obj, srcType);
-            }
-            return;
+    const indicators = extractIndicatorLeaves(currentIndicatorData);
+    indicators.forEach(ind => {
+        if (activeIndicators.has(ind.indicatorName)) {
+            drawIndicatorSeries(ind.indicatorName, ind.fullName, ind.dataArray, ind.sourceType);
         }
-        if (typeof obj === 'object' && obj !== null) {
-            for (const key in obj) {
-                traverse(obj[key], currentPath.concat(key), srcType);
-            }
-        }
-    }
-
-    Object.keys(currentIndicatorData).forEach(key => {
-        const srcType = key === 'volume' ? 'volume' : 'stock';
-        traverse(currentIndicatorData[key], [key], srcType);
     });
 }
 

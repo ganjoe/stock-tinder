@@ -88,8 +88,13 @@ def calculate_feature(df, config_item):
                 return gui_val, ml_val
         except Exception:
             pass
-        nan_series = pd.Series(np.nan, index=df.index)
-        return nan_series, nan_series
+        # Fallback: Manual calculation for %K if ta.stoch fails (common with d=1)
+        # Formula: 100 * (close - low_n) / (high_n - low_n)
+        low_min = df["l"].rolling(window=kwargs["k"]).min()
+        high_max = df["h"].rolling(window=kwargs["k"]).max()
+        gui_val = 100 * (df["c"] - low_min) / (high_max - low_min)
+        ml_val = gui_val / 100.0
+        return gui_val, ml_val
         
     # 3. Volatilität
     elif ind_type == "adr_pct":
