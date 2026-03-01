@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 .env
 /data/features.parquet
+*.parquet
 /data/market_cache
 .DS_Store
 data/market_cache/*/annotations.json
