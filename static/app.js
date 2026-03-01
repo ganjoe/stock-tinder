@@ -1,28 +1,48 @@
 // =====================================
+// CONSTANTS & CATEGORIES
+// =====================================
+const PANE_CATEGORIES = ['price', 'vol', 'norm', 'norm_abs', 'pct_abs', 'pct', 'abs'];
+
+// Default chart_type and scaleMargins per category
+const CATEGORY_DEFAULTS = {
+    price: { chart_type: 'line', scaleMargins: { top: 0.05, bottom: 0.05 } },
+    vol: { chart_type: 'bar', scaleMargins: { top: 0.1, bottom: 0 } },
+    abs: { chart_type: 'line', scaleMargins: { top: 0.1, bottom: 0 } },
+    norm: { chart_type: 'line', scaleMargins: { top: 0.1, bottom: 0.1 } },
+    norm_abs: { chart_type: 'line', scaleMargins: { top: 0.1, bottom: 0.1 } },
+    pct: { chart_type: 'line', scaleMargins: { top: 0.1, bottom: 0.1 } },
+    pct_abs: { chart_type: 'line', scaleMargins: { top: 0.1, bottom: 0 } },
+};
+
+// =====================================
 // GLOBAL STATE
 // =====================================
-let tickers = []; // Tickers for the CURRENT watchlist
-let allTickers = []; // ALL available tickers in the system
+let tickers = [];
+let allTickers = [];
 let currentIndex = 0;
 let watchlists = [];
 let currentWatchlist = null;
-let chart = null;
-let volumeChart = null;
-let candlestickSeries = null;
-let volumeSeries = null;
 let currentData = [];
 let dataCache = new Map();
 let annotations = { human_annotations: [], ai_predictions: [] };
-let annotationLines = [];
 let indicatorStyleConfig = { aliases: {}, indicators: {} };
-let activeIndicators = new Set();
-let indicatorSeriesMap = {};
 let currentIndicatorData = {};
 
-// Table Visibility & Layout State
+// Pane management
+let paneRegistry = new Map(); // Map<category, PaneState>
+let paneOrderCounter = 1;     // Chronological ordering for dynamic panes
+
+// Indicator management
+let activeIndicators = new Set();       // Set of indicator labelNames
+let indicatorSeriesMap = {};            // fullName -> { series, chartInstance }
+
+// Layout
 let isTableVisible = localStorage.getItem('tableVisible') !== 'false';
-let volumeHeightRatio = 0.25; // Default: 150px / 600px wrapper
-let selectionSeries = null; // To draw temporary selection markers
+let selectionSeries = null;
+let selectionRange = { start: null, end: null };
+
+// Store pane heights to persist across ticker changes
+let storedPaneHeights = {}; // category -> pixel height (for non-price panes)
 
 const COLOR_HUMAN = 'rgba(0, 255, 0, 0.2)';
 const COLOR_BOT = 'rgba(0, 0, 255, 0.2)';
@@ -31,10 +51,11 @@ const COLOR_BOT = 'rgba(0, 0, 255, 0.2)';
 // INITIALIZATION
 // =====================================
 document.addEventListener("DOMContentLoaded", async () => {
-    initChart();
+    initCharts();
     await fetchIndicatorConfig();
-    await fetchAllTickers(); // Fetch global list for search datalist
-    await fetchWatchlists(); // Fetch watchlists and initial subset
+    renderPaneDropdown();
+    await fetchAllTickers();
+    await fetchWatchlists();
     setupEventListeners();
 });
 
@@ -49,19 +70,16 @@ async function fetchIndicatorConfig() {
     }
 }
 
-function initChart() {
-    const priceContainer = document.getElementById('price-chart-container');
-    const volumeContainer = document.getElementById('volume-chart-container');
+// =====================================
+// CHART / PANE CREATION
+// =====================================
 
-    // Ensure LightweightCharts is loaded
-    if (typeof window.LightweightCharts === 'undefined') {
-        setTimeout(initChart, 100);
-        return;
-    }
+function createChartInstance(container, options = {}) {
+    if (typeof window.LightweightCharts === 'undefined') return null;
 
-    chart = window.LightweightCharts.createChart(priceContainer, {
-        width: priceContainer.clientWidth,
-        height: priceContainer.clientHeight,
+    const defaults = {
+        width: container.clientWidth,
+        height: container.clientHeight,
         layout: {
             background: { type: 'solid', color: '#121212' },
             textColor: '#d1d4dc',
@@ -70,9 +88,7 @@ function initChart() {
             vertLines: { color: 'rgba(42, 46, 57, 0.5)' },
             horzLines: { color: 'rgba(42, 46, 57, 0.5)' },
         },
-        crosshair: {
-            mode: 1, // Normal mode
-        },
+        crosshair: { mode: 1 },
         rightPriceScale: {
             borderColor: 'rgba(197, 203, 206, 0.8)',
         },
@@ -81,124 +97,102 @@ function initChart() {
             borderColor: 'rgba(197, 203, 206, 0.8)',
             timeVisible: false,
         },
+    };
+
+    const merged = deepMerge(defaults, options);
+    return window.LightweightCharts.createChart(container, merged);
+}
+
+function deepMerge(target, source) {
+    const result = { ...target };
+    for (const key of Object.keys(source)) {
+        if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+            result[key] = deepMerge(result[key] || {}, source[key]);
+        } else {
+            result[key] = source[key];
+        }
+    }
+    return result;
+}
+
+function initCharts() {
+    if (typeof window.LightweightCharts === 'undefined') {
+        setTimeout(initCharts, 100);
+        return;
+    }
+
+    // ---- PRICE PANE ----
+    const priceContainer = document.getElementById('price-chart-container');
+    const priceChart = createChartInstance(priceContainer);
+
+    const candlestickSeries = priceChart.addCandlestickSeries({
+        upColor: '#26a69a', downColor: '#ef5350',
+        borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350',
     });
 
-    candlestickSeries = chart.addCandlestickSeries({
-        upColor: '#26a69a',
-        downColor: '#ef5350',
-        borderVisible: false,
-        wickUpColor: '#26a69a',
-        wickDownColor: '#ef5350',
+    selectionSeries = priceChart.addLineSeries({
+        color: 'transparent', lineWidth: 0,
+        crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false,
     });
 
-    // Hidden series just for drawing the temporary selection markers
-    selectionSeries = chart.addLineSeries({
-        color: 'transparent',
-        lineWidth: 0,
-        crosshairMarkerVisible: false,
-        priceLineVisible: false,
-        lastValueVisible: false,
+    paneRegistry.set('price', {
+        category: 'price',
+        containerId: 'price-chart-container',
+        chartInstance: priceChart,
+        isVisible: true,
+        orderIndex: 0,
+        primarySeries: candlestickSeries,
+        resizerId: null,
     });
 
-    volumeChart = window.LightweightCharts.createChart(volumeContainer, {
-        width: volumeContainer.clientWidth,
-        height: volumeContainer.clientHeight,
-        layout: {
-            background: { type: 'solid', color: '#121212' },
-            textColor: '#d1d4dc',
-        },
-        grid: {
-            vertLines: { color: 'rgba(42, 46, 57, 0.5)' },
-            horzLines: { color: 'rgba(42, 46, 57, 0.5)' },
-        },
-        crosshair: {
-            mode: 1, // Normal mode
-        },
+    // ---- VOLUME PANE ----
+    const volumeContainer = document.getElementById('volume-chart-container');
+    const volumeChart = createChartInstance(volumeContainer, {
         rightPriceScale: {
-            visible: true,
             autoScale: true,
-            borderColor: 'rgba(197, 203, 206, 0.8)',
-            scaleMargins: {
-                top: 0.1,
-                bottom: 0, // Keep volume at bottom, preventing negative labels
-            },
+            scaleMargins: { top: 0.1, bottom: 0 },
         },
         timeScale: {
             visible: true,
-            borderColor: 'rgba(197, 203, 206, 0.8)',
             timeVisible: false,
-            minBarSpacing: 0.5, // Increase density
-            tickMarkFormatter: (time, tickMarkType, locale) => {
+            minBarSpacing: 0.5,
+            tickMarkFormatter: (time) => {
                 const date = new Date(time * 1000);
                 const month = date.toLocaleString('en-US', { month: 'short' });
                 const year = date.getFullYear().toString().slice(-2);
                 return `${month} '${year}`;
             },
         },
-        handleScale: {
-            axisPressedMouseMove: {
-                time: true,
-                price: true,
-            },
-        },
-        handleScroll: {
-            mouseWheel: true,
-            pressedMouseMove: true,
-        },
+        handleScale: { axisPressedMouseMove: { time: true, price: true } },
+        handleScroll: { mouseWheel: true, pressedMouseMove: true },
     });
 
-    volumeSeries = volumeChart.addHistogramSeries({
+    const volumeSeries = volumeChart.addHistogramSeries({
         color: '#26a69a',
-        priceFormat: {
-            type: 'volume',
-        },
-        priceScaleId: 'right', // Explicitly use right scale to enable labels and dragging
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'right',
     });
-
-    // Ensure the volume scale doesn't show negative values and has a 0 baseline
     volumeSeries.priceScale().applyOptions({
         autoScale: true,
-        scaleMargins: {
-            top: 0.1,
-            bottom: 0.05, // Small margin to ensure the 0 label has room
-        },
+        scaleMargins: { top: 0.1, bottom: 0.05 },
     });
 
-    // Handle Resize
-    window.addEventListener('resize', () => {
-        if (chart && priceContainer) {
-            chart.applyOptions({
-                width: priceContainer.clientWidth,
-                height: priceContainer.clientHeight
-            });
-        }
-        if (volumeChart && volumeContainer) {
-            volumeChart.applyOptions({
-                width: volumeContainer.clientWidth,
-                height: volumeContainer.clientHeight
-            });
-        }
+    paneRegistry.set('vol', {
+        category: 'vol',
+        containerId: 'volume-chart-container',
+        chartInstance: volumeChart,
+        isVisible: true,
+        orderIndex: 9999,
+        primarySeries: volumeSeries,
+        resizerId: 'vol-resizer',
     });
 
-    // Task T-003: Sync Time Scales
-    chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-        if (range) volumeChart.timeScale().setVisibleLogicalRange(range);
-    });
-    volumeChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-        if (range) chart.timeScale().setVisibleLogicalRange(range);
-    });
+    // ---- Time Sync between all panes ----
+    syncTimeScales();
 
-    // Initialize Visibility
-    const tableToggle = document.getElementById('table-toggle');
-    tableToggle.checked = isTableVisible;
-    updateLayout();
-
-    // Task T-003: Sync Crosshairs
+    // ---- Crosshair Sync (price <-> vol) ----
     function syncCrosshair(param, targetChart, targetSeries) {
-        if (!param.time) {
-            targetChart.clearCrosshairPosition();
-            return;
-        }
+        if (!param.time) { targetChart.clearCrosshairPosition(); return; }
         let price = null;
         const d = dataCache.get(param.time);
         if (d) {
@@ -211,62 +205,31 @@ function initChart() {
             targetChart.clearCrosshairPosition();
         }
     }
+    priceChart.subscribeCrosshairMove(param => syncCrosshair(param, volumeChart, volumeSeries));
+    volumeChart.subscribeCrosshairMove(param => syncCrosshair(param, priceChart, candlestickSeries));
 
-    chart.subscribeCrosshairMove(param => syncCrosshair(param, volumeChart, volumeSeries));
-    volumeChart.subscribeCrosshairMove(param => syncCrosshair(param, chart, candlestickSeries));
+    // ---- Window Resize ----
+    window.addEventListener('resize', () => resizeAllPanes());
 
-    // Task T-004: Implement Resizer Drag Logic
-    const resizer = document.getElementById('chart-resizer');
-    const wrapper = document.getElementById('chart-wrapper');
-    let isResizing = false;
+    // ---- Initialize Layout ----
+    const tableToggle = document.getElementById('table-toggle');
+    tableToggle.checked = isTableVisible;
+    updateLayout();
 
-    resizer.addEventListener('mousedown', (e) => {
-        isResizing = true;
-        document.body.style.cursor = 'row-resize';
-        e.preventDefault();
-    });
+    // Rebuild DOM resizers after initial panes are registered
+    rebuildResizersDOM();
+    updateLayoutHeights();
 
-    document.addEventListener('mousemove', (e) => {
-        if (!isResizing) return;
-        const wrapperRect = wrapper.getBoundingClientRect();
-        let newVolumeHeight = wrapperRect.bottom - e.clientY;
-
-        // Limits
-        if (newVolumeHeight < 50) newVolumeHeight = 50;
-        if (newVolumeHeight > wrapperRect.height - 150) newVolumeHeight = wrapperRect.height - 150;
-
-        volumeContainer.style.height = `${newVolumeHeight}px`;
-
-        // Update ratio so expansion maintains it
-        volumeHeightRatio = newVolumeHeight / wrapper.clientHeight;
-
-        // Adjust charts
-        chart.applyOptions({ width: priceContainer.clientWidth, height: priceContainer.clientHeight });
-        volumeChart.applyOptions({ width: volumeContainer.clientWidth, height: volumeContainer.clientHeight });
-    });
-
-    document.addEventListener('mouseup', () => {
-        if (isResizing) {
-            isResizing = false;
-            document.body.style.cursor = 'default';
-        }
-    });
-
-    // Handle Selection (Shift+Click OR Select Mode toggle)
-    chart.subscribeClick((param) => {
+    // ---- Chart Click for Selection ----
+    priceChart.subscribeClick((param) => {
         if (!param.time || !param.sourceEvent) return;
-
         const isSelectMode = document.getElementById('select-mode-toggle').checked;
         if (!param.sourceEvent.shiftKey && !isSelectMode) return;
-
         const clickedTime = param.time;
-
         if (!selectionRange.start || (selectionRange.start && selectionRange.end)) {
-            // New selection
             selectionRange.start = clickedTime;
             selectionRange.end = null;
         } else {
-            // Complete selection
             if (clickedTime < selectionRange.start) {
                 selectionRange.end = selectionRange.start;
                 selectionRange.start = clickedTime;
@@ -278,15 +241,557 @@ function initChart() {
     });
 }
 
-function drawSelectionMarkers() {
-    let markers = [];
-    if (selectionRange.start) {
-        markers.push({ time: selectionRange.start, position: 'belowBar', color: '#ffcc00', shape: 'arrowUp', text: 'Select Start' });
+// =====================================
+// PANE MANAGEMENT
+// =====================================
+
+function createPane(category) {
+    if (paneRegistry.has(category)) return paneRegistry.get(category);
+    if (!PANE_CATEGORIES.includes(category)) {
+        console.warn(`[Pane] Unknown category "${category}", skipping.`);
+        return null;
     }
-    if (selectionRange.end) {
-        markers.push({ time: selectionRange.end, position: 'aboveBar', color: '#ffcc00', shape: 'arrowDown', text: 'Select End' });
+
+    const wrapper = document.getElementById('chart-wrapper');
+    const volResizer = document.getElementById('vol-resizer');
+
+    // Create container
+    const container = document.createElement('div');
+    container.id = `${category}-chart-container`;
+    container.className = 'chart-pane-container';
+    container.style.flex = `0 0 ${MIN_PANE_HEIGHT}px`;
+    container.dataset.category = category;
+
+    // Label
+    const label = document.createElement('span');
+    label.className = 'pane-label';
+    label.textContent = category.toUpperCase();
+    container.appendChild(label);
+
+    // Close button
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'pane-close-btn';
+    closeBtn.dataset.closeCategory = category;
+    closeBtn.title = `Close ${category} pane`;
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', () => togglePaneVisibility(category, false));
+    container.appendChild(closeBtn);
+
+    // Insert before volume (always last)
+    const volContainer = document.getElementById('volume-chart-container');
+    wrapper.insertBefore(container, volContainer);
+
+    // Create chart
+    const catDefaults = CATEGORY_DEFAULTS[category] || CATEGORY_DEFAULTS.abs;
+    const chartInstance = createChartInstance(container, {
+        rightPriceScale: {
+            autoScale: true,
+            scaleMargins: catDefaults.scaleMargins,
+        },
+    });
+
+    const paneState = {
+        category,
+        containerId: container.id,
+        chartInstance,
+        isVisible: true,
+        orderIndex: paneOrderCounter++,
+        primarySeries: null,
+    };
+
+    paneRegistry.set(category, paneState);
+
+    // Sync timescales
+    syncTimeScales();
+
+    return paneState;
+}
+
+function togglePaneVisibility(category, forceShow) {
+    if (category === 'price') return; // Price is always visible
+
+    const show = forceShow !== undefined ? forceShow : !(paneRegistry.has(category) && paneRegistry.get(category).isVisible);
+
+    if (show) {
+        let pane = paneRegistry.get(category);
+        if (!pane) {
+            pane = createPane(category);
+        }
+        if (!pane) return;
+
+        const container = document.getElementById(pane.containerId);
+        if (container) container.style.display = '';
+        pane.isVisible = true;
+
+    } else {
+        const pane = paneRegistry.get(category);
+        if (!pane) return;
+
+        const container = document.getElementById(pane.containerId);
+        if (container) {
+            storedPaneHeights[category] = container.clientHeight;
+            container.style.display = 'none';
+        }
+
+        pane.isVisible = false;
+        removeIndicatorsForCategory(category);
     }
-    selectionSeries.setMarkers(markers);
+
+    rebuildResizersDOM();
+    updateLayoutHeights();
+    resizeAllPanes();
+    syncTimeScales();
+
+    // Sync checkbox in dropdown
+    const checkbox = document.getElementById(`pane-toggle-${category}`);
+    if (checkbox) checkbox.checked = show;
+}
+
+function removeIndicatorsForCategory(category) {
+    const pane = paneRegistry.get(category);
+    if (!pane || !pane.chartInstance) return;
+
+    const toRemove = [];
+    for (const [fullName, entry] of Object.entries(indicatorSeriesMap)) {
+        if (entry.category === category) {
+            try { pane.chartInstance.removeSeries(entry.series); } catch (e) { }
+            toRemove.push(fullName);
+        }
+    }
+    toRemove.forEach(k => {
+        delete indicatorSeriesMap[k];
+    });
+
+    // Uncheck indicators in dropdown
+    for (const name of activeIndicators) {
+        const conf = getIndicatorConfig(name);
+        if (conf._category === category) {
+            activeIndicators.delete(name);
+            const cb = document.getElementById(`ind-toggle-${sanitizeId(name)}`);
+            if (cb) cb.checked = false;
+        }
+    }
+}
+
+// =====================================
+// TIME SCALE SYNC
+// =====================================
+
+function syncTimeScales() {
+    const allPanes = Array.from(paneRegistry.values()).filter(p => p.isVisible && p.chartInstance);
+    if (allPanes.length < 2) return;
+
+    // Remove old subscriptions by re-subscribing (LightweightCharts doesn't have unsubscribe easily)
+    // We use a debounce flag to prevent loops
+    let isSyncing = false;
+
+    allPanes.forEach(pane => {
+        pane.chartInstance.timeScale().subscribeVisibleLogicalRangeChange(range => {
+            if (isSyncing || !range) return;
+            isSyncing = true;
+            allPanes.forEach(otherPane => {
+                if (otherPane !== pane && otherPane.chartInstance) {
+                    try { otherPane.chartInstance.timeScale().setVisibleLogicalRange(range); } catch (e) { }
+                }
+            });
+            isSyncing = false;
+        });
+    });
+}
+
+// =====================================
+// DYNAMIC LAYOUT & RESIZER LOGIC
+// =====================================
+
+const MIN_PANE_HEIGHT = 80;
+const RESIZER_HEIGHT = 4;
+
+function getVisiblePanesDOM() {
+    return Array.from(document.querySelectorAll('.chart-pane-container'))
+        .filter(el => el.style.display !== 'none');
+}
+
+function rebuildResizersDOM() {
+    const wrapper = document.getElementById('chart-wrapper');
+    const panes = getVisiblePanesDOM();
+
+    // Remove old resizers
+    document.querySelectorAll('.chart-resizer').forEach(el => el.remove());
+
+    // Inject exact number of resizers (n-1) between visible panes
+    for (let i = 0; i < panes.length - 1; i++) {
+        const paneAbove = panes[i];
+        const paneBelow = panes[i + 1];
+
+        const resizer = document.createElement('div');
+        resizer.className = 'chart-resizer';
+        resizer.id = `resizer-${paneAbove.dataset.category}-${paneBelow.dataset.category}`;
+
+        // Insert right before paneBelow
+        wrapper.insertBefore(resizer, paneBelow);
+
+        attachResizerEvents(resizer, paneAbove, paneBelow);
+    }
+}
+
+function updateLayoutHeights() {
+    const wrapper = document.getElementById('chart-wrapper');
+    if (!wrapper) return;
+
+    const panes = getVisiblePanesDOM();
+    if (panes.length === 0) return;
+
+    const totalHeight = wrapper.clientHeight;
+    const resizerSpace = (panes.length - 1) * RESIZER_HEIGHT;
+    const availableHeight = totalHeight - resizerSpace;
+
+    // 1. Assign heights based on stored properties OR minimums
+    let usedHeight = 0;
+    const paneHeights = new Array(panes.length).fill(0);
+
+    panes.forEach((pane, i) => {
+        const cat = pane.dataset.category;
+        // Priority: 1) Currently explicitly rendered height, 2) Stored memory height, 3) Default 20%
+        let requested = pane.style.height ? parseFloat(pane.style.height) : (storedPaneHeights[cat] || (i === 0 ? availableHeight * 0.7 : MIN_PANE_HEIGHT));
+        requested = Math.max(MIN_PANE_HEIGHT, requested);
+        paneHeights[i] = requested;
+        usedHeight += requested;
+    });
+
+    // 2. Normalize proportionally to ensure exact 100% fill (availableHeight)
+    const scaleFactor = availableHeight / usedHeight;
+
+    panes.forEach((pane, i) => {
+        const h = Math.floor(paneHeights[i] * scaleFactor);
+        pane.style.height = `${h}px`;
+        pane.style.flex = `0 0 ${h}px`;
+        storedPaneHeights[pane.dataset.category] = h; // Cache the new height
+    });
+}
+
+function attachResizerEvents(resizer, paneAbove, paneBelow) {
+    let isResizing = false;
+    let startY = 0;
+    let startHeightAbove = 0;
+    let startHeightBelow = 0;
+
+    resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        document.body.style.cursor = 'row-resize';
+        e.preventDefault();
+        startY = e.clientY;
+        startHeightAbove = paneAbove.clientHeight;
+        startHeightBelow = paneBelow.clientHeight;
+    });
+
+    const onMouseMove = (e) => {
+        if (!isResizing) return;
+
+        let deltaY = e.clientY - startY;
+
+        // Constraints: Do not shrink below MIN_PANE_HEIGHT
+        if (startHeightAbove + deltaY < MIN_PANE_HEIGHT) {
+            deltaY = MIN_PANE_HEIGHT - startHeightAbove;
+        }
+        if (startHeightBelow - deltaY < MIN_PANE_HEIGHT) {
+            deltaY = startHeightBelow - MIN_PANE_HEIGHT;
+        }
+
+        const newAbove = startHeightAbove + deltaY;
+        const newBelow = startHeightBelow - deltaY;
+
+        paneAbove.style.height = `${newAbove}px`;
+        paneAbove.style.flex = `0 0 ${newAbove}px`;
+
+        paneBelow.style.height = `${newBelow}px`;
+        paneBelow.style.flex = `0 0 ${newBelow}px`;
+
+        storedPaneHeights[paneAbove.dataset.category] = newAbove;
+        storedPaneHeights[paneBelow.dataset.category] = newBelow;
+
+        resizeAllPanes();
+    };
+
+    const onMouseUp = () => {
+        if (isResizing) {
+            isResizing = false;
+            document.body.style.cursor = 'default';
+        }
+    };
+
+    // Attach to document for global tracking during drag
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+}
+
+function resizeAllPanes() {
+    for (const pane of paneRegistry.values()) {
+        if (!pane.isVisible || !pane.chartInstance) continue;
+        const container = document.getElementById(pane.containerId);
+        if (!container) continue;
+        pane.chartInstance.applyOptions({
+            width: container.clientWidth,
+            height: container.clientHeight,
+        });
+    }
+}
+
+// =====================================
+// DROPDOWN RENDERERS
+// =====================================
+
+function renderPaneDropdown() {
+    const menu = document.getElementById('pane-dropdown-menu');
+    if (!menu) return;
+    menu.innerHTML = '';
+
+    // Show all categories except 'price' (always visible)
+    PANE_CATEGORIES.filter(c => c !== 'price').forEach(cat => {
+        const div = document.createElement('div');
+        div.className = 'form-check';
+
+        const input = document.createElement('input');
+        input.className = 'form-check-input';
+        input.type = 'checkbox';
+        input.id = `pane-toggle-${cat}`;
+        input.checked = cat === 'vol'; // vol is visible by default
+
+        input.addEventListener('change', (e) => {
+            togglePaneVisibility(cat, e.target.checked);
+        });
+
+        const label = document.createElement('label');
+        label.className = 'form-check-label';
+        label.htmlFor = input.id;
+        label.textContent = cat.toUpperCase();
+
+        div.appendChild(input);
+        div.appendChild(label);
+        menu.appendChild(div);
+    });
+}
+
+function renderIndicatorDropdown() {
+    const menu = document.getElementById('indicator-dropdown-menu');
+    if (!menu) return;
+    menu.innerHTML = '';
+
+    if (!currentIndicatorData) return;
+
+    // Traverse the indicator data to find all leaf arrays
+    const indicators = [];
+    function traverse(obj, currentPath, sourceType) {
+        if (Array.isArray(obj)) {
+            const indicatorName = currentPath.slice(1).join('_');
+            const fullName = currentPath.join('_');
+            indicators.push({ indicatorName, fullName, sourceType, dataArray: obj });
+            return;
+        }
+        if (typeof obj === 'object' && obj !== null) {
+            for (const key in obj) {
+                traverse(obj[key], currentPath.concat(key), sourceType);
+            }
+        }
+    }
+
+    Object.keys(currentIndicatorData).forEach(key => {
+        const sourceType = key === 'volume' ? 'volume' : 'stock';
+        traverse(currentIndicatorData[key], [key], sourceType);
+    });
+
+    // Group by category
+    const grouped = {};
+    indicators.forEach(ind => {
+        const conf = getIndicatorConfig(ind.indicatorName, ind.sourceType);
+        const cat = conf._category;
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(ind);
+    });
+
+    // Render grouped
+    for (const cat of PANE_CATEGORIES) {
+        const items = grouped[cat];
+        if (!items || items.length === 0) continue;
+
+        const header = document.createElement('div');
+        header.className = 'dropdown-header';
+        header.textContent = cat.toUpperCase();
+        menu.appendChild(header);
+
+        items.forEach(ind => {
+            const div = document.createElement('div');
+            div.className = 'form-check';
+
+            const input = document.createElement('input');
+            input.className = 'form-check-input';
+            input.type = 'checkbox';
+            input.id = `ind-toggle-${sanitizeId(ind.indicatorName)}`;
+            input.checked = activeIndicators.has(ind.indicatorName);
+
+            input.addEventListener('change', (e) => {
+                toggleIndicator(ind.indicatorName, ind.fullName, ind.dataArray, e.target.checked, ind.sourceType);
+            });
+
+            const label = document.createElement('label');
+            label.className = 'form-check-label';
+            label.htmlFor = input.id;
+
+            // Color swatch
+            const conf = getIndicatorConfig(ind.indicatorName);
+            const color = resolveColor(conf.color);
+            label.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:4px;"></span>${ind.indicatorName}`;
+
+            div.appendChild(input);
+            div.appendChild(label);
+            menu.appendChild(div);
+        });
+    }
+}
+
+// =====================================
+// INDICATOR MANAGEMENT
+// =====================================
+
+function getIndicatorConfig(labelName, sourceType) {
+    // Exact match first
+    let matched = indicatorStyleConfig.indicators && indicatorStyleConfig.indicators[labelName];
+
+    // If no exact match, try prefix matching (e.g. "stoch_10_1" matches config key "stoch")
+    if (!matched && indicatorStyleConfig.indicators) {
+        for (const key of Object.keys(indicatorStyleConfig.indicators)) {
+            if (labelName.startsWith(key + '_') || labelName === key) {
+                matched = indicatorStyleConfig.indicators[key];
+                break;
+            }
+        }
+    }
+
+    const conf = matched ? { ...matched } : {};
+
+    // Determine category - default based on source: volume -> 'vol', stock -> 'price'
+    let cat = conf.type || (sourceType === 'volume' ? 'vol' : 'price');
+    if (!PANE_CATEGORIES.includes(cat)) {
+        console.warn(`[Indicator] "${labelName}" has unknown type "${cat}", defaulting to "price".`);
+        cat = 'price';
+    }
+    conf._category = cat;
+
+    // Determine chart_type - respect explicit config, else use category default
+    if (!conf.chart_type) {
+        conf.chart_type = (CATEGORY_DEFAULTS[cat] || CATEGORY_DEFAULTS.abs).chart_type;
+    }
+
+    return conf;
+}
+
+function sanitizeId(name) {
+    return name.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function toggleIndicator(labelName, fullName, dataArray, isChecked, sourceType) {
+    if (isChecked) {
+        activeIndicators.add(labelName);
+        drawIndicatorSeries(labelName, fullName, dataArray, sourceType);
+    } else {
+        activeIndicators.delete(labelName);
+        removeIndicatorSeries(fullName);
+    }
+}
+
+function drawIndicatorSeries(labelName, fullName, dataArray, sourceType) {
+    if (indicatorSeriesMap[fullName]) return;
+
+    const conf = getIndicatorConfig(labelName, sourceType);
+    const category = conf._category;
+
+    // Auto-open pane if needed (F-UI-160)
+    togglePaneVisibility(category, true);
+
+    const pane = paneRegistry.get(category);
+    if (!pane || !pane.isVisible || !pane.chartInstance) {
+        console.warn(`[Indicator] No pane for category "${category}", skipping "${labelName}".`);
+        return;
+    }
+
+    const chartInstance = pane.chartInstance;
+
+    // Styling
+    let color = resolveColor(conf.color) || '#FFFFFF';
+    let lineWidth = conf.thickness || 2;
+    let lineStyle = 0;
+    if (conf.style === 'dotted') lineStyle = 1;
+    if (conf.style === 'dashed') lineStyle = 2;
+
+    // Fallback color if no config
+    if (!conf.color) {
+        let hash = 0;
+        for (let i = 0; i < labelName.length; i++) hash = labelName.charCodeAt(i) + ((hash << 5) - hash);
+        color = `hsl(${Math.abs(hash) % 360}, 70%, 60%)`;
+    }
+
+    // Create series based on chart_type
+    let series;
+    const chartType = conf.chart_type || 'line';
+
+    if (chartType === 'bar') {
+        series = chartInstance.addHistogramSeries({
+            color: color,
+            priceFormat: { type: 'volume' },
+            priceScaleId: 'right',
+        });
+    } else if (chartType === 'scatter') {
+        series = chartInstance.addLineSeries({
+            color: color,
+            lineWidth: 0,
+            lineVisible: false,
+            crosshairMarkerVisible: true,
+            crosshairMarkerRadius: 4,
+            pointMarkersVisible: true,
+            pointMarkersRadius: 2,
+            priceLineVisible: false,
+            lastValueVisible: false,
+        });
+    } else {
+        // line (default)
+        series = chartInstance.addLineSeries({
+            color: color,
+            lineWidth: lineWidth,
+            lineStyle: lineStyle,
+            crosshairMarkerVisible: false,
+            priceScaleId: 'right',
+        });
+    }
+
+    // Align data
+    const alignedData = alignIndicatorData(currentData, dataArray);
+    series.setData(alignedData);
+
+    indicatorSeriesMap[fullName] = { series, chartInstance, category, labelName };
+}
+
+function removeIndicatorSeries(fullName) {
+    const entry = indicatorSeriesMap[fullName];
+    if (!entry) return;
+    try { entry.chartInstance.removeSeries(entry.series); } catch (e) { }
+    delete indicatorSeriesMap[fullName];
+}
+
+function alignIndicatorData(priceData, indicatorValues) {
+    const result = [];
+    for (let i = 0; i < priceData.length && i < indicatorValues.length; i++) {
+        if (indicatorValues[i] !== null && indicatorValues[i] !== undefined) {
+            result.push({ time: priceData[i].time, value: indicatorValues[i] });
+        }
+    }
+    return result;
+}
+
+function resolveColor(colorNameOrHex) {
+    if (!colorNameOrHex) return '#FFFFFF';
+    if (indicatorStyleConfig.aliases && indicatorStyleConfig.aliases[colorNameOrHex]) {
+        return indicatorStyleConfig.aliases[colorNameOrHex];
+    }
+    return colorNameOrHex;
 }
 
 // =====================================
@@ -296,9 +801,6 @@ async function fetchAllTickers() {
     const res = await fetch('/api/tickers');
     const data = await res.json();
     allTickers = data.tickers || [];
-
-    // We intentionally do NOT populate the datalist here anymore.
-    // It will be populated dynamically on user input to prevent it from showing when empty.
     const datalist = document.getElementById('ticker-datalist');
     datalist.innerHTML = '';
 }
@@ -312,7 +814,6 @@ async function fetchWatchlists() {
     wsSelect.innerHTML = '';
 
     if (watchlists.length === 0) {
-        // Fallback to global list if no watchlists exist
         tickers = allTickers;
         if (tickers.length > 0) await loadTicker(0);
         return;
@@ -325,23 +826,18 @@ async function fetchWatchlists() {
         wsSelect.appendChild(opt);
     });
 
-    // Load first watchlist
     wsSelect.value = watchlists[0];
     await loadSelectedWatchlist(watchlists[0]);
 }
 
 async function loadSelectedWatchlist(name) {
     currentWatchlist = name;
-
     const res = await fetch(`/api/watchlist/${name}`);
     const data = await res.json();
-
-    // Overwrite the global tickers array to restrict Prev/Next navigation
     tickers = data.tickers || [];
 
     const tSelect = document.getElementById('ticker-select');
     tSelect.innerHTML = '';
-
     tickers.forEach(t => {
         const opt = document.createElement('option');
         opt.value = t;
@@ -352,30 +848,26 @@ async function loadSelectedWatchlist(name) {
     if (tickers.length > 0) {
         await loadTicker(0);
     } else {
-        // Clear chart if empty
-        if (candlestickSeries) candlestickSeries.setData([]);
-        if (volumeSeries) volumeSeries.setData([]);
+        const pricePane = paneRegistry.get('price');
+        const volPane = paneRegistry.get('vol');
+        if (pricePane && pricePane.primarySeries) pricePane.primarySeries.setData([]);
+        if (volPane && volPane.primarySeries) volPane.primarySeries.setData([]);
     }
 }
 
 async function loadSpecificTicker(ticker) {
-
-    // Sync dropdown if it exists in the current watchlist
     const tSelect = document.getElementById('ticker-select');
     const newIndex = tickers.indexOf(ticker);
-
     if (newIndex !== -1) {
         currentIndex = newIndex;
         if (tSelect) tSelect.value = ticker;
     }
 
-    // Fetch Chart Data
     try {
         const resData = await fetch(`/api/chart/${ticker}`);
         if (!resData.ok) throw new Error("Chart data not found");
         currentData = await resData.json();
 
-        // Fetch Indicator Data
         try {
             const resInd = await fetch(`/api/indicators/${ticker}`);
             currentIndicatorData = await resInd.json();
@@ -384,16 +876,15 @@ async function loadSpecificTicker(ticker) {
             currentIndicatorData = {};
         }
 
-        // Cache for fast crosshair lookup
         dataCache.clear();
         currentData.forEach(d => dataCache.set(d.time, d));
 
-        // Fetch Annotations
         const resAnno = await fetch(`/api/annotations/${ticker}`);
         annotations = await resAnno.json();
 
         renderChart();
-        renderIndicatorCheckboxes();
+        renderIndicatorDropdown();
+        redrawActiveIndicators();
         renderTable();
     } catch (e) {
         console.error("Failed to load specific ticker:", e);
@@ -421,12 +912,16 @@ async function saveAnnotations() {
 // =====================================
 function renderChart() {
     if (!currentData || currentData.length === 0) {
-        candlestickSeries.setData([]);
-        volumeSeries.setData([]);
+        const pricePane = paneRegistry.get('price');
+        const volPane = paneRegistry.get('vol');
+        if (pricePane && pricePane.primarySeries) pricePane.primarySeries.setData([]);
+        if (volPane && volPane.primarySeries) volPane.primarySeries.setData([]);
         return;
     }
 
-    // Prepare data for Lightweight Charts
+    const pricePane = paneRegistry.get('price');
+    const volPane = paneRegistry.get('vol');
+
     const candleData = currentData.map(d => ({
         time: d.time, open: d.open, high: d.high, low: d.low, close: d.close
     }));
@@ -437,71 +932,103 @@ function renderChart() {
         color: d.close >= d.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)'
     }));
 
-    candlestickSeries.setData(candleData);
-    volumeSeries.setData(volData);
-    selectionSeries.setData(candleData.map(d => ({ time: d.time, value: d.close }))); // Need data to attach markers
+    pricePane.primarySeries.setData(candleData);
+    if (volPane && volPane.primarySeries) volPane.primarySeries.setData(volData);
+    selectionSeries.setData(candleData.map(d => ({ time: d.time, value: d.close })));
 
-    // Clear active selection on new ticker load
     selectionRange = { start: null, end: null };
     drawSelectionMarkers();
-
-    // Draw Annotations (as colored background ranges or lines)
     drawAnnotations();
 
-    // Auto-scale logic
+    // Auto-scale
     const isAuto = document.getElementById('autoscale-toggle').checked;
-    candlestickSeries.priceScale().applyOptions({ autoScale: isAuto });
+    applyAutoScaleToAll(isAuto);
 
-    // Always fit content on new load so the new ticker is fully visible
-    chart.timeScale().fitContent();
-    if (volumeChart) volumeChart.timeScale().fitContent();
+    // Fit content on new load
+    for (const pane of paneRegistry.values()) {
+        if (pane.isVisible && pane.chartInstance) {
+            pane.chartInstance.timeScale().fitContent();
+        }
+    }
+}
+
+function redrawActiveIndicators() {
+    // Remove all existing indicator series
+    for (const [fullName, entry] of Object.entries(indicatorSeriesMap)) {
+        try { entry.chartInstance.removeSeries(entry.series); } catch (e) { }
+    }
+    indicatorSeriesMap = {};
+
+    if (!currentIndicatorData) return;
+
+    // Re-traverse and re-draw active ones
+    function traverse(obj, currentPath, srcType) {
+        if (Array.isArray(obj)) {
+            const indicatorName = currentPath.slice(1).join('_');
+            const fullName = currentPath.join('_');
+            if (activeIndicators.has(indicatorName)) {
+                drawIndicatorSeries(indicatorName, fullName, obj, srcType);
+            }
+            return;
+        }
+        if (typeof obj === 'object' && obj !== null) {
+            for (const key in obj) {
+                traverse(obj[key], currentPath.concat(key), srcType);
+            }
+        }
+    }
+
+    Object.keys(currentIndicatorData).forEach(key => {
+        const srcType = key === 'volume' ? 'volume' : 'stock';
+        traverse(currentIndicatorData[key], [key], srcType);
+    });
 }
 
 function drawAnnotations() {
-    // Clear old markers/lines if any
-    candlestickSeries.setMarkers([]);
+    const pricePane = paneRegistry.get('price');
+    if (!pricePane || !pricePane.primarySeries) return;
+
+    pricePane.primarySeries.setMarkers([]);
 
     const viewMode = document.getElementById('viewHuman').checked ? 'human_annotations' : 'ai_predictions';
     const list = annotations[viewMode] || [];
     const color = viewMode === 'human_annotations' ? '#00FF00' : '#0000FF';
 
     let markers = [];
-
     list.forEach(ann => {
-        // Lightweight charts doesn't have native "vrect" backgrounds easily.
-        // We use Markers above the bars.
         markers.push({
-            time: ann.start,
-            position: 'aboveBar',
-            color: color,
-            shape: 'arrowDown',
-            text: `[${ann.score}] Start`
+            time: ann.start, position: 'aboveBar', color: color,
+            shape: 'arrowDown', text: `[${ann.score}] Start`
         });
         markers.push({
-            time: ann.end,
-            position: 'belowBar',
-            color: color,
-            shape: 'arrowUp',
-            text: `End`
+            time: ann.end, position: 'belowBar', color: color,
+            shape: 'arrowUp', text: `End`
         });
     });
 
-    // Sort markers by time as required by lightweight-charts
     markers.sort((a, b) => (a.time > b.time) ? 1 : ((b.time > a.time) ? -1 : 0));
-    try {
-        candlestickSeries.setMarkers(markers);
-    } catch (e) {
-        console.warn("Could not set markers (possibly invalid time format):", e);
+    try { pricePane.primarySeries.setMarkers(markers); } catch (e) {
+        console.warn("Could not set markers:", e);
     }
+}
+
+function drawSelectionMarkers() {
+    let markers = [];
+    if (selectionRange.start) {
+        markers.push({ time: selectionRange.start, position: 'belowBar', color: '#ffcc00', shape: 'arrowUp', text: 'Select Start' });
+    }
+    if (selectionRange.end) {
+        markers.push({ time: selectionRange.end, position: 'aboveBar', color: '#ffcc00', shape: 'arrowDown', text: 'Select End' });
+    }
+    selectionSeries.setMarkers(markers);
 }
 
 function formatTime(t) {
     if (typeof t === 'number') {
-        // Unix timestamp (seconds) to YYYY-MM-DD
         const d = new Date(t * 1000);
         return d.toISOString().split('T')[0];
     }
-    return t; // Fallback if already string
+    return t;
 }
 
 function renderTable() {
@@ -514,35 +1041,23 @@ function renderTable() {
     list.forEach((ann, index) => {
         const tr = document.createElement('tr');
         tr.className = 'cursor-pointer';
-
-        // Build Row
         tr.innerHTML = `
             <td class="nav-trigger">${formatTime(ann.start)}</td>
             <td class="nav-trigger">${formatTime(ann.end)}</td>
             <td class="nav-trigger">${ann.pattern}</td>
-            <td>
-                <input type="number" class="score-input bg-dark text-white border-secondary" 
-                       value="${ann.score}" min="1" max="6" data-idx="${index}">
-            </td>
-            <td>
-                <button class="btn btn-danger btn-sm btn-delete" data-idx="${index}">X</button>
-            </td>
+            <td><input type="number" class="score-input bg-dark text-white border-secondary"
+                       value="${ann.score}" min="1" max="6" data-idx="${index}"></td>
+            <td><button class="btn btn-danger btn-sm btn-delete" data-idx="${index}">X</button></td>
         `;
-
-        // Navigation Click Event
         tr.querySelectorAll('.nav-trigger').forEach(td => {
-            td.addEventListener('click', () => {
-                zoomToRange(ann.start, ann.end);
-            });
+            td.addEventListener('click', () => zoomToRange(ann.start, ann.end));
         });
-
         tbody.appendChild(tr);
     });
 
-    // Score Edit Event
     document.querySelectorAll('.score-input').forEach(input => {
         input.addEventListener('change', async (e) => {
-            if (viewMode !== 'human_annotations') return; // Readonly for bot
+            if (viewMode !== 'human_annotations') return;
             const idx = e.target.getAttribute('data-idx');
             annotations.human_annotations[idx].score = parseInt(e.target.value);
             await saveAnnotations();
@@ -550,7 +1065,6 @@ function renderTable() {
         });
     });
 
-    // Delete Event
     document.querySelectorAll('.btn-delete').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             if (viewMode !== 'human_annotations') return;
@@ -564,57 +1078,83 @@ function renderTable() {
 }
 
 function zoomToRange(startStr, endStr) {
-    // Determine the logical range.
-    // TradingView works best with logical ranges if we want to add padding.
     if (!currentData.length) return;
-
     let startIndex = currentData.findIndex(d => d.time === startStr);
     let endIndex = currentData.findIndex(d => d.time === endStr);
 
     if (startIndex !== -1 && endIndex !== -1) {
         let padding = Math.max(5, Math.floor((endIndex - startIndex) * 0.25));
-
         let startLog = Math.max(0, startIndex - padding);
         let endLog = Math.min(currentData.length - 1, endIndex + padding);
 
-        chart.timeScale().setVisibleLogicalRange({ from: startLog, to: endLog });
+        const pricePane = paneRegistry.get('price');
+        if (pricePane && pricePane.chartInstance) {
+            pricePane.chartInstance.timeScale().setVisibleLogicalRange({ from: startLog, to: endLog });
+        }
         document.getElementById('autoscale-toggle').checked = true;
+        applyAutoScaleToAll(true);
     }
 }
 
 // =====================================
-// EVENT LISTENERS
+// AUTO-SCALE & PANNING
+// =====================================
+
+function applyAutoScaleToAll(isAuto) {
+    for (const pane of paneRegistry.values()) {
+        if (!pane.isVisible || !pane.chartInstance) continue;
+
+        // Apply to all price scales
+        try {
+            const catDefaults = CATEGORY_DEFAULTS[pane.category] || CATEGORY_DEFAULTS.abs;
+            const margins = isAuto ? catDefaults.scaleMargins : { top: 0.05, bottom: 0.05 };
+
+            // Right scale
+            pane.chartInstance.applyOptions({
+                rightPriceScale: {
+                    autoScale: isAuto,
+                    scaleMargins: margins,
+                },
+                handleScale: {
+                    axisPressedMouseMove: {
+                        time: true,
+                        price: !isAuto,
+                    },
+                },
+                handleScroll: {
+                    pressedMouseMove: !isAuto,
+                },
+            });
+        } catch (e) { }
+    }
+}
+
+// =====================================
+// LAYOUT
 // =====================================
 function updateLayout() {
     const wrapper = document.getElementById('chart-wrapper');
-    const volumeContainer = document.getElementById('volume-chart-container');
-    const priceContainer = document.getElementById('price-chart-container');
     const tableRow = document.getElementById('annotations-table-row');
 
-    // 1. Set wrapper height (Toggle expansion)
     wrapper.style.height = isTableVisible ? '60vh' : '82vh';
 
-    // 2. Toggle Table Visibility (Opacity + Display)
     if (isTableVisible) {
         tableRow.style.display = 'flex';
         setTimeout(() => tableRow.style.opacity = '1', 10);
     } else {
         tableRow.style.opacity = '0';
-        setTimeout(() => tableRow.style.display = 'none', 300); // Wait for transition
+        setTimeout(() => tableRow.style.display = 'none', 300);
     }
 
-    // 3. Apply stored ratio to volume container (after short delay for wrapper transition)
     setTimeout(() => {
-        const newTotalHeight = wrapper.clientHeight;
-        const newVolHeight = newTotalHeight * volumeHeightRatio;
-        volumeContainer.style.height = `${newVolHeight}px`;
-
-        // 4. Force chart resize
-        if (chart) chart.applyOptions({ width: priceContainer.clientWidth, height: priceContainer.clientHeight });
-        if (volumeChart) volumeChart.applyOptions({ width: volumeContainer.clientWidth, height: newVolHeight });
+        updateLayoutHeights();
+        resizeAllPanes();
     }, 310);
 }
 
+// =====================================
+// EVENT LISTENERS
+// =====================================
 function setupEventListeners() {
     // Table Toggle
     const tableToggle = document.getElementById('table-toggle');
@@ -624,7 +1164,6 @@ function setupEventListeners() {
         updateLayout();
     });
 
-    // Toggle Hotkey (T)
     document.addEventListener('keydown', (e) => {
         if (e.key.toLowerCase() === 't' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
             isTableVisible = !isTableVisible;
@@ -634,32 +1173,26 @@ function setupEventListeners() {
         }
     });
 
-    // Dropdowns and Search
+    // Watchlist
     document.getElementById('watchlist-select').addEventListener('change', async (e) => {
         await loadSelectedWatchlist(e.target.value);
     });
 
+    // Ticker
     document.getElementById('ticker-select').addEventListener('change', async (e) => {
         const selectedTicker = e.target.value;
         const newIndex = tickers.indexOf(selectedTicker);
-        if (newIndex !== -1) {
-            await loadTicker(newIndex);
-        }
+        if (newIndex !== -1) await loadTicker(newIndex);
     });
 
+    // Ticker search
     document.getElementById('ticker-search').addEventListener('input', (e) => {
         const searchValue = e.target.value.toUpperCase();
         const datalist = document.getElementById('ticker-datalist');
-
-        datalist.innerHTML = ''; // Always clear first
-
-        // Only populate if there's at least one character typed
+        datalist.innerHTML = '';
         if (searchValue.length > 0) {
-            // Find matches that contain the search string
             const matches = allTickers.filter(t => t.includes(searchValue));
-            // Limit to prevent DOM overload on a massive list
             const limit = Math.min(matches.length, 50);
-
             for (let i = 0; i < limit; i++) {
                 const opt = document.createElement('option');
                 opt.value = matches[i];
@@ -670,26 +1203,18 @@ function setupEventListeners() {
 
     document.getElementById('ticker-search').addEventListener('change', async (e) => {
         const searchValue = e.target.value.toUpperCase();
-        e.target.value = searchValue; // Force uppercase in input
-
+        e.target.value = searchValue;
         if (searchValue.length === 0) return;
-
-        // Try exact match first
         if (allTickers.includes(searchValue)) {
             await loadSpecificTicker(searchValue);
-            e.target.value = ''; // clear upon successful load
+            e.target.value = '';
             document.getElementById('ticker-datalist').innerHTML = '';
         } else {
-            // If not an exact match, check if there is exactly ONE partial match
             const matches = allTickers.filter(t => t.includes(searchValue));
             if (matches.length === 1) {
-                // Auto-select the single match (e.g., when the user hits Enter early)
                 await loadSpecificTicker(matches[0]);
-                e.target.value = ''; // clear upon successful load
+                e.target.value = '';
                 document.getElementById('ticker-datalist').innerHTML = '';
-            } else {
-                console.log(`[DataFetcher Stub] Ticker '${searchValue}' not found exactly locally, and no unique match. Placeholder for DataFetcher module.`);
-                // Currently do nothing visually. Will be handled by future DataFetcher module.
             }
         }
     });
@@ -706,35 +1231,33 @@ function setupEventListeners() {
         });
     });
 
-    // Score Buttons (1-6)
+    // Score Buttons
     document.querySelectorAll('.btn-score').forEach(btn => {
         btn.addEventListener('click', async (e) => {
-            if (document.getElementById('viewHuman').checked === false) {
+            if (!document.getElementById('viewHuman').checked) {
                 alert("Please switch to 'Human' mode to annotate.");
                 return;
             }
-
             const score = parseInt(e.target.getAttribute('data-score'));
-
             let start_date, end_date;
 
-            // Priority 1: Shift+Click Selection
             if (selectionRange.start && selectionRange.end) {
                 start_date = selectionRange.start;
                 end_date = selectionRange.end;
             } else {
-                // Priority 2: Visible Range (Legacy behavior from Plotly)
-                const range = chart.timeScale().getVisibleRange();
-                if (range && range.from && range.to) {
-                    const logicalRange = chart.timeScale().getVisibleLogicalRange();
-                    if (logicalRange) {
-                        const fromIdx = Math.max(0, Math.floor(logicalRange.from));
-                        const toIdx = Math.min(currentData.length - 1, Math.ceil(logicalRange.to));
-                        const visibleData = currentData.slice(fromIdx, toIdx + 1);
-
-                        if (visibleData.length > 0) {
-                            start_date = visibleData[0].time;
-                            end_date = visibleData[visibleData.length - 1].time;
+                const pricePane = paneRegistry.get('price');
+                if (pricePane && pricePane.chartInstance) {
+                    const range = pricePane.chartInstance.timeScale().getVisibleRange();
+                    if (range && range.from && range.to) {
+                        const logicalRange = pricePane.chartInstance.timeScale().getVisibleLogicalRange();
+                        if (logicalRange) {
+                            const fromIdx = Math.max(0, Math.floor(logicalRange.from));
+                            const toIdx = Math.min(currentData.length - 1, Math.ceil(logicalRange.to));
+                            const visibleData = currentData.slice(fromIdx, toIdx + 1);
+                            if (visibleData.length > 0) {
+                                start_date = visibleData[0].time;
+                                end_date = visibleData[visibleData.length - 1].time;
+                            }
                         }
                     }
                 }
@@ -742,13 +1265,8 @@ function setupEventListeners() {
 
             if (start_date && end_date) {
                 annotations.human_annotations.push({
-                    start: start_date,
-                    end: end_date,
-                    pattern: "vcp",
-                    score: score
+                    start: start_date, end: end_date, pattern: "vcp", score: score
                 });
-
-                // Clear selection and turn off select mode toggle
                 selectionRange = { start: null, end: null };
                 document.getElementById('select-mode-toggle').checked = false;
                 await saveAnnotations();
@@ -759,187 +1277,34 @@ function setupEventListeners() {
         });
     });
 
-    // Timeframe Buttons (30D, 60D, 90D)
+    // Timeframe Buttons
     document.querySelectorAll('.btn-tf').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            const daysStr = e.target.getAttribute('data-days'); // not direct 1:1 mapping on trading days vs calendar, but we approximate by data points
-            const days = parseInt(daysStr);
-
-            // In trading days, 30 calendar days is roughly 21 trading days. We use direct data points for better accuracy.
+            const days = parseInt(e.target.getAttribute('data-days'));
             const dataPoints = Math.floor(days * 0.7);
-
-            const logicalRange = chart.timeScale().getVisibleLogicalRange();
-            if (logicalRange) {
-                chart.timeScale().setVisibleLogicalRange({
-                    from: logicalRange.from,
-                    to: logicalRange.from + dataPoints
-                });
+            const pricePane = paneRegistry.get('price');
+            if (pricePane && pricePane.chartInstance) {
+                const logicalRange = pricePane.chartInstance.timeScale().getVisibleLogicalRange();
+                if (logicalRange) {
+                    pricePane.chartInstance.timeScale().setVisibleLogicalRange({
+                        from: logicalRange.from,
+                        to: logicalRange.from + dataPoints
+                    });
+                }
             }
         });
     });
 
-    // Autoscale Toggle
+    // Autoscale Toggle (F-UI-090)
     document.getElementById('autoscale-toggle').addEventListener('change', (e) => {
-        const isAuto = e.target.checked;
-        candlestickSeries.priceScale().applyOptions({ autoScale: isAuto });
+        applyAutoScaleToAll(e.target.checked);
     });
-}
 
-// =====================================
-// DYNAMIC INDICATORS
-// =====================================
-
-function renderIndicatorCheckboxes() {
-    const stockContainer = document.getElementById('stock-indicators-container');
-    const volumeContainer = document.getElementById('volume-indicators-container');
-
-    stockContainer.innerHTML = '';
-    volumeContainer.innerHTML = '';
-
-    // Clear existing series from charts before re-rendering
-    for (const [key, series] of Object.entries(indicatorSeriesMap)) {
-        if (key.startsWith('stock_')) {
-            chart.removeSeries(series);
-        } else if (key.startsWith('volume_')) {
-            volumeChart.removeSeries(series);
-        }
-    }
-    indicatorSeriesMap = {};
-
-    if (!currentIndicatorData) return;
-
-    // Helper to traverse indikator.json
-    function traverse(obj, currentPath, type) {
-        if (Array.isArray(obj)) {
-            // Reached a leaf node (the data array)
-            const indicatorName = currentPath.slice(1).join('_'); // e.g. ["stock", "ma", "sma", "10"] -> "ma_sma_10"
-            const fullName = currentPath.join('_'); // "stock_ma_sma_10"
-            createCheckbox(indicatorName, fullName, type, obj);
-            return;
-        }
-
-        if (typeof obj === 'object' && obj !== null) {
-            for (const key in obj) {
-                traverse(obj[key], currentPath.concat(key), type);
-            }
-        }
-    }
-
-    function createCheckbox(labelName, fullName, type, dataArray) {
-        const container = type === 'stock' ? stockContainer : volumeContainer;
-
-        const wrapper = document.createElement('div');
-        wrapper.className = 'form-check form-check-inline form-switch mb-0';
-
-        const input = document.createElement('input');
-        input.className = 'form-check-input';
-        input.type = 'checkbox';
-        input.role = 'switch';
-        input.id = `ind-toggle-${fullName}`;
-
-        // Restore state if it was active
-        if (activeIndicators.has(labelName)) {
-            input.checked = true;
-            // Draw immediately
-            drawIndicatorLine(labelName, fullName, type, dataArray);
-        }
-
-        input.addEventListener('change', (e) => {
-            const isChecked = e.target.checked;
-            if (isChecked) {
-                activeIndicators.add(labelName);
-                drawIndicatorLine(labelName, fullName, type, dataArray);
-            } else {
-                activeIndicators.delete(labelName);
-                removeIndicatorLine(fullName, type);
-            }
+    // Close buttons on panes
+    document.querySelectorAll('.pane-close-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const cat = btn.dataset.closeCategory;
+            if (cat) togglePaneVisibility(cat, false);
         });
-
-        const label = document.createElement('label');
-        label.className = 'form-check-label text-white ms-1';
-        label.htmlFor = input.id;
-        label.style.fontSize = '0.8rem';
-        label.innerText = labelName;
-
-        wrapper.appendChild(input);
-        wrapper.appendChild(label);
-        container.appendChild(wrapper);
-    }
-
-    Object.keys(currentIndicatorData).forEach(key => {
-        const type = key === 'volume' ? 'volume' : 'stock';
-        traverse(currentIndicatorData[key], [key], type);
     });
-}
-
-function resolveColor(colorNameOrHex) {
-    if (!colorNameOrHex) return '#FFFFFF'; // Default fallback
-    if (indicatorStyleConfig.aliases && indicatorStyleConfig.aliases[colorNameOrHex]) {
-        return indicatorStyleConfig.aliases[colorNameOrHex];
-    }
-    return colorNameOrHex;
-}
-
-function drawIndicatorLine(labelName, fullName, type, dataArray) {
-    // Prevent double drawing
-    if (indicatorSeriesMap[fullName]) return;
-
-    const targetChart = type === 'stock' ? chart : volumeChart;
-
-    // Default styling
-    let color = '#FFFFFF';
-    let lineWidth = 2;
-    // We cannot access LightweightCharts object enum directly if it's not defined precisely
-    // 0 = Solid, 1 = Dotted, 2 = Dashed, 3 = LargeDashed, 4 = SparseDotted
-    let lineStyle = 0;
-
-    // Apply config if exists
-    if (indicatorStyleConfig.indicators && indicatorStyleConfig.indicators[labelName]) {
-        const conf = indicatorStyleConfig.indicators[labelName];
-        color = resolveColor(conf.color) || color;
-        if (conf.thickness) lineWidth = conf.thickness;
-        if (conf.style === 'dotted') lineStyle = 1;
-        if (conf.style === 'dashed') lineStyle = 2;
-    } else {
-        // Fallback: generating deterministic random color based on string
-        let hash = 0;
-        for (let i = 0; i < labelName.length; i++) hash = labelName.charCodeAt(i) + ((hash << 5) - hash);
-        color = `hsl(${Math.abs(hash) % 360}, 70%, 60%)`;
-    }
-
-    let seriesOptions = {
-        color: color,
-        lineWidth: lineWidth,
-        lineStyle: lineStyle,
-        crosshairMarkerVisible: false,
-    };
-
-    // Ensure scaling properly
-    if (type === 'stock') {
-        seriesOptions.priceScaleId = 'right';
-    }
-
-    const series = targetChart.addLineSeries(seriesOptions);
-
-    // We must map the numeric values to time objects using currentData
-    const lineData = [];
-    for (let i = 0; i < dataArray.length; i++) {
-        if (i < currentData.length && dataArray[i] !== null) {
-            lineData.push({
-                time: currentData[i].time,
-                value: dataArray[i]
-            });
-        }
-    }
-
-    series.setData(lineData);
-    indicatorSeriesMap[fullName] = series;
-}
-
-function removeIndicatorLine(fullName, type) {
-    const targetChart = type === 'stock' ? chart : volumeChart;
-    if (indicatorSeriesMap[fullName]) {
-        targetChart.removeSeries(indicatorSeriesMap[fullName]);
-        delete indicatorSeriesMap[fullName];
-    }
 }

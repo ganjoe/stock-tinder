@@ -23,27 +23,31 @@
             "color": "cyan",
             "thickness": 2,
             "style": "dotted",
-            "type": "ma"
+            "type": "price"
         },
         "ma_sma_50": {
             "color": "orange",
             "thickness": 3,
-            "style": "solid"
+            "style": "solid",
+            "type": "price"
         },
         "ma_ema_10": {
             "color": "magenta",
             "thickness": 2,
-            "style": "solid"
+            "style": "solid",
+            "type": "price"
         },
         "ma_ema_20": {
             "color": "yellow",
             "thickness": 2,
-            "style": "solid"
+            "style": "solid",
+            "type": "price"
         },
         "ma_ema_50": {
             "color": "white",
             "thickness": 2,
-            "style": "solid"
+            "style": "solid",
+            "type": "price"
         },
         "adr%": {
             "color": "purple",
@@ -55,7 +59,7 @@
             "color": "yellow",
             "thickness": 1,
             "style": "dashed",
-            "type": "norm_abs" // Normalized 0.0 - 1.0
+            "type": "norm_abs"
         }
     }
 }

@@ -1,0 +1,24 @@
+# Requirements Backlog: Charting & UI
+
+| ID | Category | Title | Description | Covered By |
+| :--- | :--- | :--- | :--- | :--- |
+| F-ARCH-010 | Architektur | Hardcodierte Kategorien (Ziel-Panes) | Das System muss die Kategorien "price", "vol", "norm", "norm_abs", "pct_abs", "pct" und "abs" unmissverständlich als **Routing-Ziele** (Panes) kennen. | - |
+| F-UI-020 | UI | Standard-Pane Price | Das System verfügt über ein statisches primäres Chart-Pane exklusiv für "price"-Indikatoren. Dieses Pane ist immer sichtbar und sein Platz darf durch andere Panes verkleinert werden. | - |
+| F-UI-030 | UI | Standard-Pane Volume | Das System verfügt über ein statisches Volume-Pane für Indikatoren der Kategorie "vol" (Volume, Dollar-Volume, Vol-MA etc.). | - |
+| F-ARCH-035 | Architektur | Trennung von Pane und Chart-Typ | Die visuelle Darstellung wird von der Kategorie entkoppelt. Das System liest das Attribut `chart_type` aus der JSON. Mögliche Werte sind "line", "bar" (Balken) und "scatter" (Punkte). Fehlt dies, gelten Defaults (z.B. price=line, vol=bar). | - |
+| F-ARCH-040 | Architektur | Statisches Indikator-Routing | app.js liest die Kategorie aus der `indikator_colors.json` und routet den Indikator in das entsprechende Pane (gemäß F-ARCH-010). | - |
+| F-ARCH-050 | Architektur | Vorbereitung Future-Panes | Die Routing-Logik muss für die restlichen Kategorien vorbereitet sein, in feste Panes zu routen, sobald diese via UI aktiviert werden. | - |
+| F-ERR-060 | Error | Fehlende Panes / Kategorien | Wenn für eine Kategorie (noch) kein Pane im UI existiert oder die Kategorie unbekannt ist, wird das Rendering fehlerfrei übersprungen. | - |
+| F-UI-070 | UI | Persistentes Pane-Resizing | Alle sichtbaren Chart-Panes müssen in der Höhe variabel verschiebbar sein (Maustrenner). Die Höhenverhältnisse müssen beim Chart-Wechsel erhalten bleiben. | - |
+| F-DATA-080 | Daten | Price-Indicator Alignment | Indikatoren-Datenreihen (auch mit initialen `null`-Werten) müssen exakt auf die Zeitstempel der Price-Daten synchronisiert gerendert werden. | - |
+| F-UI-090 | UI | Globaler Auto-Scale Toggle | Das UI bietet einen globalen "Auto"-Toggle, der synchron auf alle sichtbaren Panes wirkt. Bei Wechsel (ON -> OFF) wird freies X/Y-Panning (Drag) in allen Panes aktiviert. | - |
+| F-CHART-100 | Charting | Auto-Scale Logik & Baseline | Bei "Auto ON" werden alle Y-Achsen automatisch skaliert (X bleibt stabil). Die Y=0 Baseline wird abhängig von der Kategorie gesetzt (z.B. y=0 unten bei "vol"/"abs"; y=0 mittig bei "norm"/"pct"). | - |
+| F-UI-110 | UI | Initiales Layout | Beim Öffnen der HTML werden standardmäßig nur das Price-Pane und das Volume-Pane in einem sinnvollen Höhenverhältnis (z.B. 1:4 oder 4:1) angezeigt. | - |
+| F-UI-120 | UI | Pane Toggles (Dropdown) | Alle nicht-Price Panes (vol, norm, pct etc.) können über ein Dropdown-Menü per Checkbox ein- und ausgeblendet werden. Dieses Menü befindet sich im bestehenden Control-Bereich (unterhalb der Charts). | - |
+| F-UI-130 | UI | Dynamische Platzverteilung | Wenn Panes eingeblendet werden, verkleinern sie bestehende Panes sinnvoll. Wenn Panes geschlossen werden, dehnen sich die verbleibenden Panes (z.B. Price/Volume) automatisch aus, sodass stets 100% der Fläche ohne Leerraum (weder vertikal noch horizontal) ausgefüllt wird. | - |
+| F-UI-140 | UI | Indicator Toggles (Dropdown) | Indikatoren werden über Checkboxen innerhalb eines Dropdown-Menüs aktiviert. Dieses Menü befindet sich im bestehenden Control-Bereich (ausgerichtet wie bisherige Dropdowns). | - |
+| F-UI-150 | UI | Pane Close Button | Jedes offene Pane (außer Price) verfügt über einen X-Button in der UI (z.B. Ecke des Panes), um es schnell zu schließen. | - |
+| F-UI-160 | UI | Auto-Open Pane | Wird ein Indikator aus dem Dropdown aktiviert, dessen Ziel-Pane (Kategorie) momentan nicht im UI sichtbar (eingeblendet) ist, wird dieses Pane automatisch geöffnet/eingeblendet. | - |
+| F-UI-170 | UI | Pane Stacking Order | Das "price" Pane ist zwingend immer das oberste Pane. Das "vol" Pane ist (sofern sichtbar) zwingend immer das unterste Pane. Alle dynamisch hinzukommenden Panes ("norm", "pct" etc) werden chronologisch nach Öffnungszeitpunkt dazwischen eingefügt. | - |
+| F-UI-180 | UI | Multi-Pane Resizing | Trenner (Resizer) zwischen den Panes müssen beim Verschieben exakt der Maus folgen. Das Verschieben verändert proportional die Höhe des direkt darüber- und darunterliegenden Panes, während alle anderen konstant bleiben. | - |
+| F-UI-190 | UI | Resizer-Intaktheit | Nach dem dynamischen Ein- und Ausblenden von Panes müssen alle verbleibenden Trenner-Elemente korrekt an die neuen Pane-Grenzen gebunden bleiben und sofort fehlerfrei nutzbar sein, ohne an falschen Positionen fixiert zu hängen. | - |
