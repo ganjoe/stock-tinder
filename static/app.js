@@ -65,7 +65,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 async function fetchIndicatorConfig() {
     try {
-        const res = await fetch('/api/indicator_colors');
+        const res = await fetch('/api/indicator_config');
         indicatorStyleConfig = await res.json();
         if (!indicatorStyleConfig.aliases) indicatorStyleConfig.aliases = {};
         if (!indicatorStyleConfig.indicators) indicatorStyleConfig.indicators = {};
@@ -706,9 +706,9 @@ function getIndicatorConfig(labelName, sourceType) {
 
     const conf = matched ? { ...matched } : {};
 
-    let cat = conf.type || (sourceType === 'volume' ? 'vol' : 'price');
+    let cat = conf.pane_category || (sourceType === 'volume' ? 'vol' : 'price');
     if (!PANE_CATEGORIES.includes(cat)) {
-        console.warn(`[Indicator] "${labelName}" has unknown type "${cat}", defaulting to "price".`);
+        console.warn(`[Indicator] "${labelName}" has unknown pane_category "${cat}", defaulting to "price".`);
         cat = 'price';
     }
     conf._category = cat;

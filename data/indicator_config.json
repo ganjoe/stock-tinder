@@ -1,0 +1,232 @@
+{
+    "_options_documentation": {
+        "color": "Any CSS color, #HEX code, or key from 'aliases'",
+        "thickness": "Number > 0 (e.g. 1, 2)",
+        "style": "Line style: 'solid', 'dashed', or 'dotted'",
+        "type": "Target pane category: 'price', 'vol', 'norm', 'norm_abs', 'pct_abs', 'pct', 'abs'",
+        "chart_type": "Optional render type (overrides category default): 'line', 'bar', 'scatter'"
+    },
+    "aliases": {
+        "blue": "#0000FF",
+        "red": "#FF0000",
+        "green": "#00FF00",
+        "yellow": "#FFFF00",
+        "orange": "#FFA500",
+        "purple": "#800080",
+        "cyan": "#00FFFF",
+        "magenta": "#FF00FF",
+        "white": "#FFFFFF",
+        "black": "#000000",
+        "gray": "#808080"
+    },
+    "indicators": {
+        "ma_sma_50": {
+            "color": "cyan",
+            "thickness": 2,
+            "style": "solid",
+            "chart_type": "line",
+            "path": [
+                "stock",
+                "ma",
+                "sma",
+                "50"
+            ],
+            "pane_category": "price",
+            "type": "sma_dist",
+            "kwargs": {
+                "length": 50
+            },
+            "exclude_ml": false
+        },
+        "ma_sma_200": {
+            "color": "white",
+            "thickness": 2,
+            "style": "solid",
+            "chart_type": "line",
+            "path": [
+                "stock",
+                "ma",
+                "sma",
+                "200"
+            ],
+            "pane_category": "price",
+            "type": "sma_dist",
+            "kwargs": {
+                "length": 200
+            },
+            "exclude_ml": false
+        },
+        "ma_ema_50": {
+            "color": "orange",
+            "thickness": 2,
+            "style": "solid",
+            "chart_type": "line",
+            "path": [
+                "stock",
+                "ma",
+                "ema",
+                "50"
+            ],
+            "pane_category": "price",
+            "type": "ema_dist",
+            "kwargs": {
+                "length": 50
+            },
+            "exclude_ml": false
+        },
+        "ma_sma_price_50": {
+            "color": "magenta",
+            "thickness": 1,
+            "style": "dashed",
+            "chart_type": "line",
+            "path": [
+                "stock",
+                "ma",
+                "sma_price",
+                "50"
+            ],
+            "pane_category": "price",
+            "type": "sma_price",
+            "kwargs": {
+                "length": 50
+            },
+            "exclude_ml": true
+        },
+        "ma_ema_price_50": {
+            "color": "yellow",
+            "thickness": 1,
+            "style": "dashed",
+            "chart_type": "line",
+            "path": [
+                "stock",
+                "ma",
+                "ema_price",
+                "50"
+            ],
+            "pane_category": "price",
+            "type": "ema_price",
+            "kwargs": {
+                "length": 50
+            },
+            "exclude_ml": true
+        },
+        "adr_pct": {
+            "color": "purple",
+            "thickness": 1,
+            "style": "solid",
+            "chart_type": "line",
+            "path": [
+                "stock",
+                "adr_pct"
+            ],
+            "pane_category": "pct",
+            "type": "adr_pct",
+            "kwargs": {
+                "length": 20
+            },
+            "exclude_ml": false
+        },
+        "atr_pct": {
+            "color": "blue",
+            "thickness": 1,
+            "style": "solid",
+            "chart_type": "line",
+            "path": [
+                "stock",
+                "atr_pct"
+            ],
+            "pane_category": "pct",
+            "type": "atr_pct",
+            "kwargs": {
+                "length": 14
+            },
+            "exclude_ml": false
+        },
+        "adr": {
+            "color": "red",
+            "thickness": 1,
+            "style": "solid",
+            "chart_type": "line",
+            "path": [
+                "stock",
+                "adr"
+            ],
+            "pane_category": "abs",
+            "type": "adr",
+            "kwargs": {
+                "length": 20
+            },
+            "exclude_ml": false
+        },
+        "atr": {
+            "color": "green",
+            "thickness": 1,
+            "style": "solid",
+            "chart_type": "line",
+            "path": [
+                "stock",
+                "atr"
+            ],
+            "pane_category": "abs",
+            "type": "atr",
+            "kwargs": {
+                "length": 14
+            },
+            "exclude_ml": false
+        },
+        "stoch_10_1": {
+            "color": "yellow",
+            "thickness": 1,
+            "style": "solid",
+            "chart_type": "line",
+            "path": [
+                "stock",
+                "stoch",
+                "10",
+                "1"
+            ],
+            "pane_category": "norm_abs",
+            "type": "stoch_k",
+            "kwargs": {
+                "k": 10,
+                "d": 1,
+                "smooth_k": 1
+            },
+            "exclude_ml": false
+        },
+        "ma_50": {
+            "color": "white",
+            "thickness": 1,
+            "style": "dashed",
+            "chart_type": "line",
+            "path": [
+                "volume",
+                "ma",
+                "50"
+            ],
+            "pane_category": "vol",
+            "type": "vol_ma",
+            "kwargs": {
+                "length": 50
+            },
+            "exclude_ml": false
+        },
+        "ratio_50": {
+            "color": "cyan",
+            "thickness": 2,
+            "style": "solid",
+            "chart_type": "bar",
+            "path": [
+                "volume",
+                "ratio",
+                "50"
+            ],
+            "pane_category": "norm",
+            "type": "vol_ratio",
+            "kwargs": {
+                "length": 50
+            },
+            "exclude_ml": false
+        }
+    }
+}

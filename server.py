@@ -166,9 +166,9 @@ async def api_get_watchlists():
     watchlists = [f.replace(".txt", "") for f in files]
     return {"watchlists": sorted(watchlists)}
 
-@app.get("/api/indicator_colors")
-async def api_indicator_colors():
-    filepath = os.path.join("./data", "indikator_colors.json")
+@app.get("/api/indicator_config")
+async def api_indicator_config():
+    filepath = os.path.join("./data", "indicator_config.json")
     if not os.path.exists(filepath):
         return {}
         
