@@ -20,19 +20,26 @@ PARQUET_OUT = os.path.join(DATA_BASE_DIR, "features.parquet")
 # type: Die Rechenlogik, die weiter unten im Dispatcher aufgerufen wird
 # kwargs: Parameter für die Berechnung (z.B. Länge)
 INDICATOR_CONFIG = [
-    {"path": ["stock", "ma", "sma", "10"], "type": "sma_dist", "kwargs": {"length": 10}},
-    {"path": ["stock", "ma", "sma", "20"], "type": "sma_dist", "kwargs": {"length": 20}},
+    # F-PRE-070: MA DIST
     {"path": ["stock", "ma", "sma", "50"], "type": "sma_dist", "kwargs": {"length": 50}},
-    {"path": ["stock", "ma", "ema", "10"], "type": "ema_dist", "kwargs": {"length": 10}},
-    {"path": ["stock", "ma", "ema", "20"], "type": "ema_dist", "kwargs": {"length": 20}},
     {"path": ["stock", "ma", "ema", "50"], "type": "ema_dist", "kwargs": {"length": 50}},
     
+    # F-PRE-080 & F-PRE-140: MA PRICE (Raw Prices excluded from ML)
+    {"path": ["stock", "ma", "sma_price", "50"], "type": "sma_price", "kwargs": {"length": 50}, "exclude_ml": True},
+    {"path": ["stock", "ma", "ema_price", "50"], "type": "ema_price", "kwargs": {"length": 50}, "exclude_ml": True},
+
+    # F-PRE-090: OSCILLATOR
     {"path": ["stock", "stoch", "10", "1"], "type": "stoch_k", "kwargs": {"k": 10, "d": 1, "smooth_k": 1}},
     
+    # F-PRE-100: VOLA PCT
     {"path": ["stock", "adr_pct"], "type": "adr_pct", "kwargs": {"length": 20}},
-    {"path": ["stock", "atr"], "type": "atr_pct", "kwargs": {"length": 14}},
+    {"path": ["stock", "atr_pct"], "type": "atr_pct", "kwargs": {"length": 14}},
+
+    # F-PRE-110: VOLA ABSOLUTE
+    {"path": ["stock", "adr"], "type": "adr", "kwargs": {"length": 20}},
+    {"path": ["stock", "atr"], "type": "atr", "kwargs": {"length": 14}},
     
-    
+    # F-PRE-120 & F-PRE-130: VOLUME
     {"path": ["volume", "ma", "50"], "type": "vol_ma", "kwargs": {"length": 50}},
     {"path": ["volume", "ratio", "50"], "type": "vol_ratio", "kwargs": {"length": 50}}
 ]
@@ -62,6 +69,14 @@ def calculate_feature(df, config_item):
         ml_val = (df["c"] - ma) / ma              # Fürs ML: Prozentualer Abstand
         return gui_val, ml_val
         
+    elif ind_type == "sma_price":
+        ma = ta.sma(df["c"], length=kwargs["length"])
+        return ma, ma
+        
+    elif ind_type == "ema_price":
+        ma = ta.ema(df["c"], length=kwargs["length"])
+        return ma, ma
+        
     # 2. Oszillatoren
     elif ind_type == "stoch_k":
         try:
@@ -78,23 +93,33 @@ def calculate_feature(df, config_item):
         
     # 3. Volatilität
     elif ind_type == "adr_pct":
-        gui_val = df["h"] - df["l"]               # Fürs UI: Absolute tägige Schwankung in Dollar
-        daily_range_pct = gui_val / df["c"]
-        ml_val = ta.sma(daily_range_pct, length=kwargs["length"]) # Fürs ML: Gleitender Durchschnitt in %
-        return gui_val, ml_val
+        daily_range_pct = (df["h"] - df["l"]) / df["c"]
+        smoothed_pct = ta.sma(daily_range_pct, length=kwargs["length"])
+        return smoothed_pct, smoothed_pct
         
     elif ind_type == "atr_pct":
         atr = ta.atr(high=df["h"], low=df["l"], close=df["c"], length=kwargs["length"])
-        gui_val = atr                             # Fürs UI: ATR in echten Dollar
-        ml_val = atr / df["c"]                    # Fürs ML: ATR als % vom Preis
-        return gui_val, ml_val
+        atr_pct = atr / df["c"]
+        return atr_pct, atr_pct
+        
+    elif ind_type == "adr":
+        daily_range = df["h"] - df["l"]
+        smoothed_abs = ta.sma(daily_range, length=kwargs["length"])
+        return smoothed_abs, smoothed_abs
+        
+    elif ind_type == "atr":
+        atr = ta.atr(high=df["h"], low=df["l"], close=df["c"], length=kwargs["length"])
+        return atr, atr
         
     # 4. Volumen
-    elif ind_type == "vol_ma" or ind_type == "vol_ratio":
+    elif ind_type == "vol_ratio":
         vol_ma = ta.sma(df["v"], length=kwargs["length"])
-        gui_val = vol_ma                          # Fürs UI: Echter Stückzahl-Durchschnitt
-        ml_val = df["v"] / vol_ma                 # Fürs ML: Ratio (Tagesvolumen vs. Durchschnitt)
-        return gui_val, ml_val
+        ratio = df["v"] / vol_ma
+        return ratio, ratio
+        
+    elif ind_type == "vol_ma":
+        vol_ma = ta.sma(df["v"], length=kwargs["length"])
+        return vol_ma, vol_ma
         
     else:
         raise ValueError(f"Unbekannter Indikator-Typ in der Config: {ind_type}")
@@ -160,9 +185,10 @@ def process_all_tickers():
             # Für GUI: In den JSON-Baum einfügen
             insert_into_tree(json_tree, config_item["path"], gui_series)
             
-            # Für ML: Als flache Spalte in das Parquet-DataFrame anfügen
-            flat_col_name = flatten_path_to_column(config_item["path"])
-            parquet_flat_df[flat_col_name] = ml_series
+            # Für ML: Als flache Spalte in das Parquet-DataFrame anfügen (wenn nicht excluded)
+            if not config_item.get("exclude_ml", False):
+                flat_col_name = flatten_path_to_column(config_item["path"])
+                parquet_flat_df[flat_col_name] = ml_series
             
         # 3. Export 1: Die indikator.json für die GUI abspeichern
         out_json_path = os.path.join(MARKET_DIR, ticker, "indikator.json")
