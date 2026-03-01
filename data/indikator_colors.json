@@ -16,12 +16,14 @@
         "ma_sma_10": {
             "color": "blue",
             "thickness": 2,
-            "style": "solid"
+            "style": "solid",
+            "type": "price"
         },
         "ma_sma_20": {
             "color": "cyan",
             "thickness": 2,
-            "style": "dotted"
+            "style": "dotted",
+            "type": "ma"
         },
         "ma_sma_50": {
             "color": "orange",
@@ -46,7 +48,14 @@
         "adr%": {
             "color": "purple",
             "thickness": 1,
-            "style": "dashed"
+            "style": "dashed",
+            "type": "pct"
+        },
+        "stoch": {
+            "color": "yellow",
+            "thickness": 1,
+            "style": "dashed",
+            "type": "norm_abs" // Normalized 0.0 - 1.0
         }
     }
 }
