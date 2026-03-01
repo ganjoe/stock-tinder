@@ -22,4 +22,23 @@
 | F-UI-160 | UI | Auto-Open Pane | Wird ein Indikator aus dem Dropdown aktiviert, dessen Ziel-Pane (Kategorie) momentan nicht im UI sichtbar (eingeblendet) ist, wird dieses Pane automatisch geöffnet/eingeblendet. | - |
 | F-UI-170 | UI | Pane Stacking Order | Das "price" Pane ist zwingend immer das oberste Pane. Das "vol" Pane ist (sofern sichtbar) zwingend immer das unterste Pane. Alle dynamisch hinzukommenden Panes ("norm", "pct" etc) werden chronologisch nach Öffnungszeitpunkt dazwischen eingefügt. | - |
 | F-UI-180 | UI | Multi-Pane Resizing | Trenner (Resizer) zwischen den Panes müssen beim Verschieben exakt der Maus folgen. Das Verschieben verändert proportional die Höhe des direkt darüber- und darunterliegenden Panes, während alle anderen konstant bleiben. | - |
-| F-UI-190 | UI | Resizer-Intaktheit | Nach dem dynamischen Ein- und Ausblenden von Panes müssen alle verbleibenden Trenner-Elemente korrekt an die neuen Pane-Grenzen gebunden bleiben und sofort fehlerfrei nutzbar sein, ohne an falschen Positionen fixiert zu hängen. | - |
+| F-UI-190 | UI | Resizer-Intaktheit | Nach dem dynamischen Ein- und Ausblenden von Panes müssen alle verblerequenz bleiben und sofort fehlerfrei nutzbar sein, ohne an falschen Positionen fixiert zu hängen. | - |
+
+# Requirements Backlog: Preprocessor & ML Output
+
+| ID | Category | Title | Description | Covered By |
+| :--- | :--- | :--- | :--- | :--- |
+| F-PRE-010 | Architecture | Single-Source Config | Das System muss alle Indikatoren in einem zentralen "Rezeptbuch" (Konfigurationsobjekt) definieren, welches den strukturellen Pfad, den Berechnungstyp und Parametrisierung festlegt. | - |
+| F-PRE-020 | Processing | Dual-Output Engine | Für jeden Indikator muss die Engine zwingend zwei getrennte Berechnungsstränge bedienen: Absolute Metriken für das UI (JSON) und Metriken für das Machine Learning Modell (Parquet). | - |
+| F-PRE-030 | Data-Input | Input Data Contract | Das System erwartet als Input pro Ticker eine `1D.json` Datei, welche zwingend Arrays für Time (`t`), Close (`c`), High (`h`), Low (`l`) und Volume (`v`) bereitstellt. | - |
+| F-PRE-040 | Processing | Fallback & NaN-Handling | Fehler während einer Indikator-Berechnung dürfen das Batch-Processing nicht abbrechen, sondern generieren Null/NaN-Werte. | - |
+| F-PRE-050 | Export-GUI | Indikator JSON-Tree | Das System exportiert pro Ticker eine `indikator.json` mit verschachteltem JSON-Baum, auf 4 Nachkommastellen gerundet. | - |
+| F-PRE-060 | Export-ML | Global Feature Parquet | Das System aggregiert alle ML-Daten in einer flachen `features.parquet`. Config-Pfade werden zu flachen Spaltennamen. | - |
+| F-PRE-070 | Logic: MAs | SMA_DIST / EMA_DIST | Berechnet den gleitenden Durchschnitt. GUI-Wert und ML-Wert geben beide den **prozentualen Abstand** des Schlusskurses zum Durchschnitt zurück (`(Preis - MA) / MA`). | - |
+| F-PRE-080 | Logic: MAs | SMA_PRICE / EMA_PRICE | Berechnet den gleitenden Durchschnitt. GUI-Wert und ML-Wert geben beide den **absoluten Dollar-Wert** des Durchschnitts zurück. (Oft kombiniert mit `exclude_ml=True`). | - |
+| F-PRE-090 | Logic: Oscillator | STOCH_K | Berechnet den Stochastik-Oszillator K. GUI-Wert skaliert klassisch **0 bis 100**. ML-Wert wird auf **0.0 bis 1.0 normalisiert**. | - |
+| F-PRE-100 | Logic: Volatility | ADR_PCT / ATR_PCT | Berechnet Volatilität (Range oder Average True Range). GUI-Wert und ML-Wert geben beide die Schwankung **prozentual** (`Wert / Close`) zurück. (ADR ist geglättet über X Tage). | - |
+| F-PRE-110 | Logic: Volatility | ADR / ATR | Berechnet Volatilität. GUI-Wert und ML-Wert geben beide isoliert die **absolute Schwankung in Währung** (z.B. Dollar) aus. | - |
+| F-PRE-120 | Logic: Volume | VOL_RATIO | Berechnet das Verhältnis des aktuellen Volumens zum gleitenden Durchschnitt. GUI-Wert und ML-Wert sind beide das **Ratio** (`Aktuelles Volumen / Durchschnittsvolumen`). | - |
+| F-PRE-130 | Logic: Volume | VOL_MA | Berechnet den einfachen gleitenden Volumendurchschnitt. GUI-Wert und ML-Wert geben beide die **absolute Stückzahl** aus. | - |
+| F-PRE-140 | Configuration | ML Exclusion Flag | Das Config-Objekt unterstützt ein `exclude_ml`: True Flag. Ist dies gesetzt, berechnet die Engine den Indikator regulär für die GUI .json, fügt die Datenspalte aber absichtlich **nicht** der `features.parquet` hinzu. | - |
