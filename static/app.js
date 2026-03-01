@@ -137,9 +137,10 @@ function initCharts() {
     selectionSeries = priceChart.addLineSeries({
         color: 'transparent', lineWidth: 0,
         crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false,
+        autoscaleInfoProvider: () => null,
     });
 
-    const priceBaselineSeries = priceChart.addLineSeries({ color: 'transparent', lineWidth: 0, crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false });
+    const priceBaselineSeries = priceChart.addLineSeries({ color: 'transparent', lineWidth: 0, crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false, autoscaleInfoProvider: () => null });
 
     paneRegistry.set('price', {
         category: 'price',
@@ -185,7 +186,7 @@ function initCharts() {
         scaleMargins: { top: 0.1, bottom: 0.05 },
     });
 
-    const volBaselineSeries = volumeChart.addLineSeries({ color: 'transparent', lineWidth: 0, crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false });
+    const volBaselineSeries = volumeChart.addLineSeries({ color: 'transparent', lineWidth: 0, crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false, autoscaleInfoProvider: () => null });
 
     paneRegistry.set('vol', {
         category: 'vol',
@@ -283,7 +284,7 @@ function createPane(category) {
         },
     });
 
-    const baselineSeries = chartInstance.addLineSeries({ color: 'transparent', lineWidth: 0, crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false });
+    const baselineSeries = chartInstance.addLineSeries({ color: 'transparent', lineWidth: 0, crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false, autoscaleInfoProvider: () => null });
 
     const paneState = {
         category,
