@@ -20,18 +20,18 @@ PARQUET_OUT = os.path.join(DATA_BASE_DIR, "features.parquet")
 # type: Die Rechenlogik, die weiter unten im Dispatcher aufgerufen wird
 # kwargs: Parameter für die Berechnung (z.B. Länge)
 INDICATOR_CONFIG = [
-    {"path": ["stock", "ma", "sma", "10"], "type": "sma_dist", "kwargs": {"length": 10}},
-    {"path": ["stock", "ma", "sma", "20"], "type": "sma_dist", "kwargs": {"length": 20}},
+   # {"path": ["stock", "ma", "sma", "10"], "type": "sma_dist", "kwargs": {"length": 10}},
+  #  {"path": ["stock", "ma", "sma", "20"], "type": "sma_dist", "kwargs": {"length": 20}},
     {"path": ["stock", "ma", "sma", "50"], "type": "sma_dist", "kwargs": {"length": 50}},
     
     {"path": ["stock", "ma", "ema", "10"], "type": "ema_dist", "kwargs": {"length": 10}},
     {"path": ["stock", "ma", "ema", "20"], "type": "ema_dist", "kwargs": {"length": 20}},
-    {"path": ["stock", "ma", "ema", "50"], "type": "ema_dist", "kwargs": {"length": 50}},
+#    {"path": ["stock", "ma", "ema", "50"], "type": "ema_dist", "kwargs": {"length": 50}},
     
     {"path": ["stock", "stoch", "10", "1"], "type": "stoch_k", "kwargs": {"k": 10, "d": 1, "smooth_k": 1}},
     
     {"path": ["stock", "adr%"], "type": "adr_pct", "kwargs": {"length": 20}},
-    {"path": ["stock", "atr%"], "type": "atr_pct", "kwargs": {"length": 14}},
+ #   {"path": ["stock", "atr%"], "type": "atr_pct", "kwargs": {"length": 14}},
     
     {"path": ["volume", "ma", "50"], "type": "vol_ma", "kwargs": {"length": 50}},
     {"path": ["volume", "ratio", "50"], "type": "vol_ratio", "kwargs": {"length": 50}}

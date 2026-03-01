@@ -866,12 +866,10 @@ function renderIndicatorCheckboxes() {
         container.appendChild(wrapper);
     }
 
-    if (currentIndicatorData.stock) {
-        traverse(currentIndicatorData.stock, ["stock"], "stock");
-    }
-    if (currentIndicatorData.volume) {
-        traverse(currentIndicatorData.volume, ["volume"], "volume");
-    }
+    Object.keys(currentIndicatorData).forEach(key => {
+        const type = key === 'volume' ? 'volume' : 'stock';
+        traverse(currentIndicatorData[key], [key], type);
+    });
 }
 
 function resolveColor(colorNameOrHex) {

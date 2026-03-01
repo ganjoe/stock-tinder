@@ -28,6 +28,21 @@
             "thickness": 3,
             "style": "solid"
         },
+        "ma_ema_10": {
+            "color": "magenta",
+            "thickness": 2,
+            "style": "solid"
+        },
+        "ma_ema_20": {
+            "color": "yellow",
+            "thickness": 2,
+            "style": "solid"
+        },
+        "ma_ema_50": {
+            "color": "white",
+            "thickness": 2,
+            "style": "solid"
+        },
         "adr%": {
             "color": "purple",
             "thickness": 1,
