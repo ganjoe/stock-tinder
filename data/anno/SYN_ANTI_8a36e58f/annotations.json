@@ -5,6 +5,12 @@
             "end": 1623728018,
             "pattern": "vcp",
             "score": 1
+        },
+        {
+            "start": 1618716818,
+            "end": 1619753618,
+            "pattern": "vcp",
+            "score": 5
         }
     ],
     "ai_predictions": []

@@ -1122,9 +1122,15 @@ function applyAutoScaleToAll(isAuto) {
                     },
                 },
                 handleScroll: {
-                    pressedMouseMove: !isAuto,
+                    mouseWheel: true,
+                    pressedMouseMove: true,
                 },
             });
+
+            // LOGIC FIX FOR F-UI-095: Force immediate Y-Axis snap
+            if (isAuto && pane.chartInstance.priceScale('right')) {
+                pane.chartInstance.priceScale('right').applyOptions({ autoScale: true });
+            }
         } catch (e) { }
     }
 }
