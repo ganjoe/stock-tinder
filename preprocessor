@@ -41,46 +41,60 @@ INDICATOR_CONFIG = [
 # ENGINE: BERECHNUNGSLOGIK (Der Dispatcher)
 # =====================================================================
 def calculate_feature(df, config_item):
-    """Berechnet einen spezifischen Indikator basierend auf der Config."""
+    """
+    Gibt immer ein Tupel zurück: (gui_series, ml_series)
+    - gui_series: Absolute Werte für das UI (z.B. Dollar-Preise für MAs)
+    - ml_series: Stationäre/Prozentuale Werte für das PyTorch Modell
+    """
     ind_type = config_item["type"]
     kwargs = config_item["kwargs"]
     
-    # 1. Moving Averages als PROZENTUALER ABSTAND ((Close - MA) / MA)
+    # 1. Moving Averages
     if ind_type == "sma_dist":
         ma = ta.sma(df["c"], length=kwargs["length"])
-        return (df["c"] - ma) / ma
+        gui_val = ma                              # Fürs UI: Echter Dollar-Wert
+        ml_val = (df["c"] - ma) / ma              # Fürs ML: Prozentualer Abstand
+        return gui_val, ml_val
         
     elif ind_type == "ema_dist":
         ma = ta.ema(df["c"], length=kwargs["length"])
-        return (df["c"] - ma) / ma
+        gui_val = ma                              # Fürs UI: Echter Dollar-Wert
+        ml_val = (df["c"] - ma) / ma              # Fürs ML: Prozentualer Abstand
+        return gui_val, ml_val
         
     # 2. Oszillatoren
     elif ind_type == "stoch_k":
-        # pandas_ta gibt einen DataFrame für Stochastik zurück, wir wollen nur die %K Linie
-        stoch_df = ta.stoch(high=df["h"], low=df["l"], close=df["c"], 
-                            k=kwargs["k"], d=kwargs["d"], smooth_k=kwargs["smooth_k"])
-        if stoch_df is not None and not stoch_df.empty:
-            return stoch_df.iloc[:, 0] / 100.0 # Normalisiert auf 0.0 - 1.0
-        return pd.Series(np.nan, index=df.index)
+        try:
+            stoch_df = ta.stoch(high=df["h"], low=df["l"], close=df["c"], 
+                                k=kwargs["k"], d=kwargs["d"], smooth_k=kwargs["smooth_k"])
+            if stoch_df is not None and not stoch_df.empty:
+                gui_val = stoch_df.iloc[:, 0]         # Fürs UI: Klassisch 0 bis 100
+                ml_val = gui_val / 100.0              # Fürs ML: Normalisiert 0.0 bis 1.0
+                return gui_val, ml_val
+        except Exception:
+            pass
+        nan_series = pd.Series(np.nan, index=df.index)
+        return nan_series, nan_series
         
-    # 3. Volatilitäts-Metriken (Prozentual zum Preis)
+    # 3. Volatilität
     elif ind_type == "adr_pct":
-        # Average Daily Range %: ((High - Low) / Close) als gleitender Durchschnitt
-        daily_range_pct = (df["h"] - df["l"]) / df["c"]
-        return ta.sma(daily_range_pct, length=kwargs["length"])
+        gui_val = df["h"] - df["l"]               # Fürs UI: Absolute tägige Schwankung in Dollar
+        daily_range_pct = gui_val / df["c"]
+        ml_val = ta.sma(daily_range_pct, length=kwargs["length"]) # Fürs ML: Gleitender Durchschnitt in %
+        return gui_val, ml_val
         
     elif ind_type == "atr_pct":
-        # Average True Range %: ATR / Close
         atr = ta.atr(high=df["h"], low=df["l"], close=df["c"], length=kwargs["length"])
-        return atr / df["c"]
+        gui_val = atr                             # Fürs UI: ATR in echten Dollar
+        ml_val = atr / df["c"]                    # Fürs ML: ATR als % vom Preis
+        return gui_val, ml_val
         
     # 4. Volumen
-    elif ind_type == "vol_ma":
-        return ta.sma(df["v"], length=kwargs["length"])
-        
-    elif ind_type == "vol_ratio":
+    elif ind_type == "vol_ma" or ind_type == "vol_ratio":
         vol_ma = ta.sma(df["v"], length=kwargs["length"])
-        return df["v"] / vol_ma
+        gui_val = vol_ma                          # Fürs UI: Echter Stückzahl-Durchschnitt
+        ml_val = df["v"] / vol_ma                 # Fürs ML: Ratio (Tagesvolumen vs. Durchschnitt)
+        return gui_val, ml_val
         
     else:
         raise ValueError(f"Unbekannter Indikator-Typ in der Config: {ind_type}")
@@ -141,14 +155,14 @@ def process_all_tickers():
         # 2. Indikatoren berechnen (Schleife über das Rezeptbuch)
         for config_item in INDICATOR_CONFIG:
             # Berechnung durchführen
-            calculated_series = calculate_feature(df, config_item)
+            gui_series, ml_series = calculate_feature(df, config_item)
             
             # Für GUI: In den JSON-Baum einfügen
-            insert_into_tree(json_tree, config_item["path"], calculated_series)
+            insert_into_tree(json_tree, config_item["path"], gui_series)
             
             # Für ML: Als flache Spalte in das Parquet-DataFrame anfügen
             flat_col_name = flatten_path_to_column(config_item["path"])
-            parquet_flat_df[flat_col_name] = calculated_series
+            parquet_flat_df[flat_col_name] = ml_series
             
         # 3. Export 1: Die indikator.json für die GUI abspeichern
         out_json_path = os.path.join(MARKET_DIR, ticker, "indikator.json")

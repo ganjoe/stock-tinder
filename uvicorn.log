@@ -1,6 +1,36 @@
-INFO:     Started server process [1060]
+INFO:     Will watch for changes in these directories: ['/Users/daniel/stock-tinder']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [21867] using StatReload
+INFO:     Started server process [21900]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-ERROR:    [Errno 48] error while attempting to bind on address ('0.0.0.0', 8051): address already in use
-INFO:     Waiting for application shutdown.
-INFO:     Application shutdown complete.
+INFO:     127.0.0.1:56263 - "GET /app/index.html HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56263 - "GET /app/app.js?v=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56263 - "GET /api/indicator_colors HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56263 - "GET /api/tickers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56265 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:56265 - "GET /api/watchlists HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56265 - "GET /api/watchlist/Test_Watchlist HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56282 - "GET /app/index.html HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:56282 - "GET /app/app.js?v=2 HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:56282 - "GET /api/indicator_colors HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56282 - "GET /api/tickers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56282 - "GET /api/watchlists HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56282 - "GET /api/watchlist/Test_Watchlist HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56283 - "GET /data/Test_Watchlist/4GLD/indikator.json HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:56295 - "GET /data/Test_Watchlist/SYN_ANTI_8a36e58f/indikator.json HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:56298 - "GET /api/indicator_colors HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56301 - "GET /app/app.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56306 - "GET /api/indicators/4GLD HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56324 - "GET /api/chart/4GLD HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56324 - "GET /api/indicators/4GLD HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56324 - "GET /api/annotations/4GLD HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56442 - "GET /app/index.html HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:56442 - "GET /app/app.js?v=2 HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:56442 - "GET /api/indicator_colors HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56442 - "GET /api/tickers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56442 - "GET /api/watchlists HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56442 - "GET /api/watchlist/Test_Watchlist HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56545 - "GET /api/watchlists HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56571 - "GET /api/watchlist/synvcp HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56600 - "GET /api/watchlist/synvcp HTTP/1.1" 200 OK

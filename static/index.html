@@ -55,13 +55,6 @@
 <body>
 
     <div class="container-fluid mt-2">
-        <!-- Header -->
-        <div class="row">
-            <div class="col-12 text-center">
-                <h6 id="current-ticker-display" class="text-primary fw-bold">Loading...</h6>
-            </div>
-        </div>
-
         <!-- Chart -->
         <div class="row mt-2">
             <div class="col-12">
@@ -102,7 +95,7 @@
                     title="Select Watchlist">
                 </select>
                 <select id="ticker-select" class="form-select form-select-sm"
-                    style="width: 8ch; font-size: inherit; background-color: #333; color: white; border-color: #555;"
+                    style="width: 10ch; font-size: inherit; background-color: #333; color: white; border-color: #555;"
                     title="Select Ticker">
                 </select>
                 <input type="text" id="ticker-search" list="ticker-datalist" class="form-control form-control-sm ms-2"
@@ -135,35 +128,45 @@
                     <label class="form-check-label" for="viewBot">Bot</label>
                 </div>
             </div>
-        </div>
 
-        <!-- Table -->
-        <div class="row mt-3" id="annotations-table-row">
-            <div class="col-12">
-                <div style="max-height: 25vh; overflow-y: auto; border: 1px solid #333;">
-                    <table class="table table-dark table-hover mb-0" id="annotations-table">
-                        <thead style="position: sticky; top: 0; z-index: 1;">
-                            <tr>
-                                <th>Start Date</th>
-                                <th>End Date</th>
-                                <th>Pattern</th>
-                                <th>Score (1-6)</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- Rows dynamically generated -->
-                        </tbody>
-                    </table>
+            <!-- Dynamic Indicators -->
+            <div class="row mt-2" id="dynamic-indicators-row">
+                <!-- Stock Indicators -->
+                <div class="col-12 d-flex flex-wrap align-items-center gap-2 mb-1" id="stock-indicators-container">
+                </div>
+                <!-- Volume Indicators -->
+                <div class="col-12 d-flex flex-wrap align-items-center gap-2" id="volume-indicators-container">
+                </div>
+            </div>
+
+            <!-- Table -->
+            <div class="row mt-3" id="annotations-table-row">
+                <div class="col-12">
+                    <div style="max-height: 25vh; overflow-y: auto; border: 1px solid #333;">
+                        <table class="table table-dark table-hover mb-0" id="annotations-table">
+                            <thead style="position: sticky; top: 0; z-index: 1;">
+                                <tr>
+                                    <th>Start Date</th>
+                                    <th>End Date</th>
+                                    <th>Pattern</th>
+                                    <th>Score (1-6)</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Rows dynamically generated -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- TradingView Lightweight Charts (Standalone CSS/JS via CDN) -->
-    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-    <!-- App Logic -->
-    <script src="app.js?v=2"></script>
+        <!-- TradingView Lightweight Charts (Standalone CSS/JS via CDN) -->
+        <script
+            src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+        <!-- App Logic -->
+        <script src="app.js?v=2"></script>
 
 </body>
 

@@ -132,6 +132,18 @@ async def api_get_chart(ticker: str):
         raise HTTPException(status_code=404, detail="Ticker not found")
     return data
 
+@app.get("/api/indicators/{ticker}")
+async def api_get_indicators(ticker: str):
+    filepath = os.path.join(DATA_DIR, ticker, "indikator.json")
+    if not os.path.exists(filepath):
+        return {}
+    try:
+        with open(filepath, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading {filepath}: {e}")
+        return {}
+
 @app.get("/api/annotations/{ticker}")
 async def api_get_annotations(ticker: str):
     return load_annotations(ticker)
@@ -153,6 +165,19 @@ async def api_get_watchlists():
     files = [f for f in os.listdir(watchlist_dir) if f.endswith(".txt")]
     watchlists = [f.replace(".txt", "") for f in files]
     return {"watchlists": sorted(watchlists)}
+
+@app.get("/api/indicator_colors")
+async def api_indicator_colors():
+    filepath = os.path.join("./data", "indikator_colors.json")
+    if not os.path.exists(filepath):
+        return {}
+        
+    try:
+        with open(filepath, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error reading {filepath}: {e}")
+        return {}
 
 @app.get("/api/watchlist/{watchlist_name}")
 async def api_get_watchlist_tickers(watchlist_name: str):

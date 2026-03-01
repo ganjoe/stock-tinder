@@ -14,6 +14,10 @@ let currentData = [];
 let dataCache = new Map();
 let annotations = { human_annotations: [], ai_predictions: [] };
 let annotationLines = [];
+let indicatorStyleConfig = { aliases: {}, indicators: {} };
+let activeIndicators = new Set();
+let indicatorSeriesMap = {};
+let currentIndicatorData = {};
 
 // Table Visibility & Layout State
 let isTableVisible = localStorage.getItem('tableVisible') !== 'false';
@@ -28,10 +32,22 @@ const COLOR_BOT = 'rgba(0, 0, 255, 0.2)';
 // =====================================
 document.addEventListener("DOMContentLoaded", async () => {
     initChart();
+    await fetchIndicatorConfig();
     await fetchAllTickers(); // Fetch global list for search datalist
     await fetchWatchlists(); // Fetch watchlists and initial subset
     setupEventListeners();
 });
+
+async function fetchIndicatorConfig() {
+    try {
+        const res = await fetch('/api/indicator_colors');
+        indicatorStyleConfig = await res.json();
+        if (!indicatorStyleConfig.aliases) indicatorStyleConfig.aliases = {};
+        if (!indicatorStyleConfig.indicators) indicatorStyleConfig.indicators = {};
+    } catch (e) {
+        console.error("Failed to load indicator colors config:", e);
+    }
+}
 
 function initChart() {
     const priceContainer = document.getElementById('price-chart-container');
@@ -337,14 +353,12 @@ async function loadSelectedWatchlist(name) {
         await loadTicker(0);
     } else {
         // Clear chart if empty
-        document.getElementById('current-ticker-display').innerText = `Ticker: NONE (Empty Watchlist)`;
         if (candlestickSeries) candlestickSeries.setData([]);
         if (volumeSeries) volumeSeries.setData([]);
     }
 }
 
 async function loadSpecificTicker(ticker) {
-    document.getElementById('current-ticker-display').innerText = `Ticker: ${ticker}`;
 
     // Sync dropdown if it exists in the current watchlist
     const tSelect = document.getElementById('ticker-select');
@@ -361,6 +375,15 @@ async function loadSpecificTicker(ticker) {
         if (!resData.ok) throw new Error("Chart data not found");
         currentData = await resData.json();
 
+        // Fetch Indicator Data
+        try {
+            const resInd = await fetch(`/api/indicators/${ticker}`);
+            currentIndicatorData = await resInd.json();
+        } catch (e) {
+            console.error("Failed to load indicator data:", e);
+            currentIndicatorData = {};
+        }
+
         // Cache for fast crosshair lookup
         dataCache.clear();
         currentData.forEach(d => dataCache.set(d.time, d));
@@ -370,6 +393,7 @@ async function loadSpecificTicker(ticker) {
         annotations = await resAnno.json();
 
         renderChart();
+        renderIndicatorCheckboxes();
         renderTable();
     } catch (e) {
         console.error("Failed to load specific ticker:", e);
@@ -759,4 +783,165 @@ function setupEventListeners() {
         const isAuto = e.target.checked;
         candlestickSeries.priceScale().applyOptions({ autoScale: isAuto });
     });
+}
+
+// =====================================
+// DYNAMIC INDICATORS
+// =====================================
+
+function renderIndicatorCheckboxes() {
+    const stockContainer = document.getElementById('stock-indicators-container');
+    const volumeContainer = document.getElementById('volume-indicators-container');
+
+    stockContainer.innerHTML = '';
+    volumeContainer.innerHTML = '';
+
+    // Clear existing series from charts before re-rendering
+    for (const [key, series] of Object.entries(indicatorSeriesMap)) {
+        if (key.startsWith('stock_')) {
+            chart.removeSeries(series);
+        } else if (key.startsWith('volume_')) {
+            volumeChart.removeSeries(series);
+        }
+    }
+    indicatorSeriesMap = {};
+
+    if (!currentIndicatorData) return;
+
+    // Helper to traverse indikator.json
+    function traverse(obj, currentPath, type) {
+        if (Array.isArray(obj)) {
+            // Reached a leaf node (the data array)
+            const indicatorName = currentPath.slice(1).join('_'); // e.g. ["stock", "ma", "sma", "10"] -> "ma_sma_10"
+            const fullName = currentPath.join('_'); // "stock_ma_sma_10"
+            createCheckbox(indicatorName, fullName, type, obj);
+            return;
+        }
+
+        if (typeof obj === 'object' && obj !== null) {
+            for (const key in obj) {
+                traverse(obj[key], currentPath.concat(key), type);
+            }
+        }
+    }
+
+    function createCheckbox(labelName, fullName, type, dataArray) {
+        const container = type === 'stock' ? stockContainer : volumeContainer;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'form-check form-check-inline form-switch mb-0';
+
+        const input = document.createElement('input');
+        input.className = 'form-check-input';
+        input.type = 'checkbox';
+        input.role = 'switch';
+        input.id = `ind-toggle-${fullName}`;
+
+        // Restore state if it was active
+        if (activeIndicators.has(labelName)) {
+            input.checked = true;
+            // Draw immediately
+            drawIndicatorLine(labelName, fullName, type, dataArray);
+        }
+
+        input.addEventListener('change', (e) => {
+            const isChecked = e.target.checked;
+            if (isChecked) {
+                activeIndicators.add(labelName);
+                drawIndicatorLine(labelName, fullName, type, dataArray);
+            } else {
+                activeIndicators.delete(labelName);
+                removeIndicatorLine(fullName, type);
+            }
+        });
+
+        const label = document.createElement('label');
+        label.className = 'form-check-label text-white ms-1';
+        label.htmlFor = input.id;
+        label.style.fontSize = '0.8rem';
+        label.innerText = labelName;
+
+        wrapper.appendChild(input);
+        wrapper.appendChild(label);
+        container.appendChild(wrapper);
+    }
+
+    if (currentIndicatorData.stock) {
+        traverse(currentIndicatorData.stock, ["stock"], "stock");
+    }
+    if (currentIndicatorData.volume) {
+        traverse(currentIndicatorData.volume, ["volume"], "volume");
+    }
+}
+
+function resolveColor(colorNameOrHex) {
+    if (!colorNameOrHex) return '#FFFFFF'; // Default fallback
+    if (indicatorStyleConfig.aliases && indicatorStyleConfig.aliases[colorNameOrHex]) {
+        return indicatorStyleConfig.aliases[colorNameOrHex];
+    }
+    return colorNameOrHex;
+}
+
+function drawIndicatorLine(labelName, fullName, type, dataArray) {
+    // Prevent double drawing
+    if (indicatorSeriesMap[fullName]) return;
+
+    const targetChart = type === 'stock' ? chart : volumeChart;
+
+    // Default styling
+    let color = '#FFFFFF';
+    let lineWidth = 2;
+    // We cannot access LightweightCharts object enum directly if it's not defined precisely
+    // 0 = Solid, 1 = Dotted, 2 = Dashed, 3 = LargeDashed, 4 = SparseDotted
+    let lineStyle = 0;
+
+    // Apply config if exists
+    if (indicatorStyleConfig.indicators && indicatorStyleConfig.indicators[labelName]) {
+        const conf = indicatorStyleConfig.indicators[labelName];
+        color = resolveColor(conf.color) || color;
+        if (conf.thickness) lineWidth = conf.thickness;
+        if (conf.style === 'dotted') lineStyle = 1;
+        if (conf.style === 'dashed') lineStyle = 2;
+    } else {
+        // Fallback: generating deterministic random color based on string
+        let hash = 0;
+        for (let i = 0; i < labelName.length; i++) hash = labelName.charCodeAt(i) + ((hash << 5) - hash);
+        color = `hsl(${Math.abs(hash) % 360}, 70%, 60%)`;
+    }
+
+    let seriesOptions = {
+        color: color,
+        lineWidth: lineWidth,
+        lineStyle: lineStyle,
+        crosshairMarkerVisible: false,
+    };
+
+    // Ensure scaling properly
+    if (type === 'stock') {
+        seriesOptions.priceScaleId = 'right';
+    }
+
+    const series = targetChart.addLineSeries(seriesOptions);
+
+    // We must map the numeric values to time objects using currentData
+    const lineData = [];
+    for (let i = 0; i < dataArray.length; i++) {
+        if (i < currentData.length && dataArray[i] !== null) {
+            lineData.push({
+                time: currentData[i].time,
+                value: dataArray[i]
+            });
+        }
+    }
+
+    series.setData(lineData);
+    indicatorSeriesMap[fullName] = series;
+}
+
+function removeIndicatorLine(fullName, type) {
+    const targetChart = type === 'stock' ? chart : volumeChart;
+    if (indicatorSeriesMap[fullName]) {
+        targetChart.removeSeries(indicatorSeriesMap[fullName]);
+        delete indicatorSeriesMap[fullName];
+    }
 }
