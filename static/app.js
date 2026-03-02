@@ -44,6 +44,9 @@ let selectionRange = { start: null, end: null };
 // Store pane heights to persist across ticker changes
 let storedPaneHeights = {}; // category -> pixel height (for non-price panes)
 
+// Global State for Chart Zoom Persistence
+let currentBarsVisible = 90; // Default zoom window (F-UX-040)
+
 // Sync-Management
 let isSyncingTime = false;
 let isSyncingCrosshair = false;
@@ -900,6 +903,16 @@ async function loadSpecificTicker(ticker) {
         if (tSelect) tSelect.value = ticker;
     }
 
+    // T-002 Capture Zoom State
+    const pricePane = paneRegistry.get('price');
+    if (pricePane && pricePane.chartInstance) {
+        const range = pricePane.chartInstance.timeScale().getVisibleLogicalRange();
+        if (range) {
+            currentBarsVisible = range.to - range.from;
+            currentBarsVisible = Math.max(10, currentBarsVisible);
+        }
+    }
+
     try {
         const resData = await fetch(`/api/chart/${ticker}`);
         if (!resData.ok) throw new Error("Chart data not found");
@@ -988,10 +1001,14 @@ function renderChart() {
     const isAuto = document.getElementById('autoscale-toggle').checked;
     applyAutoScaleToAll(isAuto);
 
-    // Fit content on new load
-    for (const pane of paneRegistry.values()) {
-        if (pane.isVisible && pane.chartInstance) {
-            pane.chartInstance.timeScale().fitContent();
+    // T-003 Apply right-aligned Range Logic
+    const totalBars = currentData.length;
+    if (totalBars > 0) {
+        const targetBars = Math.min(currentBarsVisible, totalBars);
+        const newTo = totalBars - 1;
+        const newFrom = newTo - targetBars;
+        if (pricePane && pricePane.chartInstance) {
+            pricePane.chartInstance.timeScale().setVisibleLogicalRange({ from: newFrom, to: newTo });
         }
     }
 }
