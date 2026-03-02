@@ -934,7 +934,7 @@ async function loadSpecificTicker(ticker) {
         if (tSelect) tSelect.value = ticker;
     }
 
-    // T-002 Capture Zoom State
+    // T-002 Capture Zoom State & Reset UI
     const pricePane = paneRegistry.get('price');
     if (pricePane && pricePane.chartInstance) {
         const range = pricePane.chartInstance.timeScale().getVisibleLogicalRange();
@@ -942,6 +942,12 @@ async function loadSpecificTicker(ticker) {
             currentBarsVisible = range.to - range.from;
             currentBarsVisible = Math.max(10, currentBarsVisible);
         }
+    }
+
+    // F-UX-080: Reset Autoscale on ticker change
+    const autoScaleToggle = document.getElementById('autoscale-toggle');
+    if (autoScaleToggle) {
+        autoScaleToggle.checked = true;
     }
 
     try {
