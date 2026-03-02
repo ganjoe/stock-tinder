@@ -435,7 +435,7 @@ function subscribeToSync(sourceCategory, sourceChart, sourceSeries) {
                     if (targetPane.valueMap) {
                         price = targetPane.valueMap.get(param.time) || 0;
                     }
-                    targetPane.chartInstance.setCrosshairPosition(price, param.time, targetPane.primarySeries || null);
+                    targetPane.chartInstance.setCrosshairPosition(price, param.time, targetPane.primarySeries || undefined);
                 }
             }
         });
@@ -978,7 +978,7 @@ async function loadSpecificTicker(ticker) {
 
         // Refresh Price/Vol value maps for crosshair surfing
         if (pricePane) pricePane.valueMap = new Map(currentData.map(d => [d.time, d.close]));
-        if (volPane) volPane.valueMap = new Map(currentData.map(d => [d.time, d.volume]));
+        if (volPane) volPane.valueMap = new Map(currentData.map(d => [d.time, d.value]));
 
         const baselineData = currentData.map(d => ({ time: d.time, value: 0 }));
         paneRegistry.forEach(pane => {
