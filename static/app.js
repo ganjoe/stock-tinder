@@ -423,22 +423,21 @@ function subscribeToSync(sourceCategory, sourceChart, sourceSeries) {
         isSyncingCrosshair = true;
 
         paneRegistry.forEach((targetPane, targetCat) => {
-            if (targetCat === sourceCategory || !targetPane.isVisible || !targetPane.chartInstance) return;
+            if (!targetPane.isVisible || !targetPane.chartInstance) return;
 
-            if (!param.time) {
-                targetPane.chartInstance.clearCrosshairPosition();
-                return;
-            }
-
-            let price = null;
-            if (targetPane.primarySeries) {
-                const d = dataCache.get(param.time);
-                if (d) {
-                    if (targetCat === 'price') price = d.close;
-                    else if (targetCat === 'vol') price = d.value;
+            // Handle crosshair sync to OTHER panes
+            if (targetCat !== sourceCategory) {
+                if (!param.time) {
+                    targetPane.chartInstance.clearCrosshairPosition();
+                } else {
+                    let price = 0;
+                    // Use the valueMap to accurately position the crosshair label
+                    if (targetPane.valueMap) {
+                        price = targetPane.valueMap.get(param.time) || 0;
+                    }
+                    targetPane.chartInstance.setCrosshairPosition(price, param.time, targetPane.primarySeries || null);
                 }
             }
-            targetPane.chartInstance.setCrosshairPosition(price || 0, param.time, targetPane.primarySeries || null);
         });
 
         isSyncingCrosshair = false;
@@ -838,6 +837,12 @@ function drawIndicatorSeries(labelName, fullName, dataArray, sourceType) {
     series.setData(alignedData);
 
     indicatorSeriesMap[fullName] = { series, chartInstance, category, labelName };
+
+    // F-UI Sync: Assign as primary series for crosshair alignment (Surfing)
+    if (!pane.primarySeries) {
+        pane.primarySeries = series;
+        pane.valueMap = new Map(alignedData.map(d => [d.time, d.value]));
+    }
 }
 
 function removeIndicatorSeries(fullName) {
@@ -944,6 +949,11 @@ async function loadSpecificTicker(ticker) {
         }
     }
 
+    // Initialize crosshair value maps for price/vol
+    if (pricePane) pricePane.valueMap = null;
+    const volPane = paneRegistry.get('vol');
+    if (volPane) volPane.valueMap = null;
+
     // F-UX-080: Reset Autoscale on ticker change
     const autoScaleToggle = document.getElementById('autoscale-toggle');
     if (autoScaleToggle) {
@@ -965,6 +975,10 @@ async function loadSpecificTicker(ticker) {
 
         dataCache.clear();
         currentData.forEach(d => dataCache.set(d.time, d));
+
+        // Refresh Price/Vol value maps for crosshair surfing
+        if (pricePane) pricePane.valueMap = new Map(currentData.map(d => [d.time, d.close]));
+        if (volPane) volPane.valueMap = new Map(currentData.map(d => [d.time, d.volume]));
 
         const baselineData = currentData.map(d => ({ time: d.time, value: 0 }));
         paneRegistry.forEach(pane => {
@@ -1056,6 +1070,14 @@ function redrawActiveIndicators() {
         try { entry.chartInstance.removeSeries(entry.series); } catch (e) { }
     }
     indicatorSeriesMap = {};
+
+    // Reset primary series tracking for sub-panes (F-UI Sync)
+    paneRegistry.forEach((p, cat) => {
+        if (cat !== 'price' && cat !== 'vol') {
+            p.primarySeries = null;
+            p.valueMap = null;
+        }
+    });
 
     if (!currentIndicatorData) return;
 
