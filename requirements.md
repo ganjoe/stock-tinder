@@ -23,6 +23,11 @@
 | F-UI-170 | UI | Pane Stacking Order | Das "price" Pane ist zwingend immer das oberste Pane. Das "vol" Pane ist (sofern sichtbar) zwingend immer das unterste Pane. Alle dynamisch hinzukommenden Panes ("norm", "pct" etc) werden chronologisch nach Öffnungszeitpunkt dazwischen eingefügt. | - |
 | F-UI-180 | UI | Multi-Pane Resizing | Trenner (Resizer) zwischen den Panes müssen beim Verschieben exakt der Maus folgen. Das Verschieben verändert proportional die Höhe des direkt darüber- und darunterliegenden Panes, während alle anderen konstant bleiben. | - |
 | F-UI-190 | UI | Resizer-Intaktheit | Nach dem dynamischen Ein- und Ausblenden von Panes müssen alle verblerequenz bleiben und sofort fehlerfrei nutzbar sein, ohne an falschen Positionen fixiert zu hängen. | - |
+| F-UX-200 | UX | Bereich merken | Beim Ticker-Wechsel speichert das System die Anzahl der sichtbaren Kerzen (Zoom-Faktor). | - |
+| F-UX-210 | UX | Rechtsbündige Verankerung | Nach einem Tickerwechsel wird der neuste Datenpunkt der Aktie am rechten Bildschirmrand fixiert. | - |
+| F-UX-230 | UX | Zoom-Anker Rechts (Viewport) | Während des manuellen Zoomens bleibt der Datenpunkt, der sich gerade am rechten Viewport-Rand befindet, positionsfest an diesem Rand fixiert (unabhängig von der Mausposition). | - |
+| F-UX-240 | UX | Zoom-Zentrum ignorieren | Die Standard-Skalierung auf die Mausposition wird durch eine Skalierung relativ zum rechten Viewport-Rand ersetzt. | - |
+| F-UX-250 | UX | Autoscale Reset | Beim Ticker-Wechsel wird der Status des "Auto"-Scale Sliders auf den Default-Wert (aktiviert) zurückgesetzt. | - |
 
 # Requirements Backlog: Preprocessor & ML Output
 

@@ -46,6 +46,8 @@ let storedPaneHeights = {}; // category -> pixel height (for non-price panes)
 
 // Global State for Chart Zoom Persistence
 let currentBarsVisible = 90; // Default zoom window (F-UX-040)
+let lastTo = null;
+let lastWidth = null;
 
 // Sync-Management
 let isSyncingTime = false;
@@ -383,14 +385,35 @@ function subscribeToSync(sourceCategory, sourceChart, sourceSeries) {
     // ---- TIME SCALE SYNC ----
     sourceChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
         if (isSyncingTime || !range) return;
-        isSyncingTime = true;
 
+        let finalRange = range;
+        const currentWidth = range.to - range.from;
+
+        // F-UX-230/240: Right-Anchored Zoom Logic
+        // If width changed significantly (zoom detected) and we have a previous anchor
+        if (lastWidth !== null && Math.abs(currentWidth - lastWidth) > 0.01) {
+            if (lastTo !== null) {
+                finalRange = { from: lastTo - currentWidth, to: lastTo };
+
+                // Immediately correct the source chart to stay anchored
+                isSyncingTime = true;
+                sourceChart.timeScale().setVisibleLogicalRange(finalRange);
+                isSyncingTime = false;
+            }
+        }
+
+        // Update persistence trackers
+        lastTo = finalRange.to;
+        lastWidth = finalRange.to - finalRange.from;
+        currentBarsVisible = lastWidth; // Persist for Ticker Switch
+
+        // Sync other panes
+        isSyncingTime = true;
         paneRegistry.forEach((p, cat) => {
             if (cat !== sourceCategory && p.isVisible && p.chartInstance) {
-                p.chartInstance.timeScale().setVisibleLogicalRange(range);
+                p.chartInstance.timeScale().setVisibleLogicalRange(finalRange);
             }
         });
-
         isSyncingTime = false;
     });
 
@@ -500,9 +523,17 @@ function updateLayoutHeights() {
 
     panes.forEach((pane, i) => {
         const h = Math.floor(paneHeights[i] * scaleFactor);
+        const cat = pane.dataset.category;
         pane.style.height = `${h}px`;
         pane.style.flex = `0 0 ${h}px`;
-        storedPaneHeights[pane.dataset.category] = h; // Cache the new height
+        storedPaneHeights[cat] = h; // Cache the new height
+
+        // F-UX-060/070: Show timeScale ONLY on the bottom-most visible pane
+        const paneState = paneRegistry.get(cat);
+        if (paneState && paneState.chartInstance) {
+            const isBottom = (i === panes.length - 1);
+            paneState.chartInstance.timeScale().applyOptions({ visible: isBottom });
+        }
     });
 }
 
