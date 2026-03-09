@@ -13,11 +13,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application code into the container
 COPY . .
 
-# Make port 8050 available to the world outside this container
-EXPOSE 8050
+# Make port 8051 available to the world outside this container
+EXPOSE 8051
 
-# Define environment variable for dash to run in the container
-ENV DASH_DEBUG_MODE=False
-
-# Run main.py when the container launches
+# Run server.py when the container launches
 CMD ["python", "server.py"]

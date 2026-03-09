@@ -1,0 +1,4 @@
+{
+    "EXTERNAL_PARQUET_DIR": "/data/parquet",
+    "WATCHLIST_DIR": "/data/watchlists"
+}

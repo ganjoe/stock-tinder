@@ -2,7 +2,12 @@ services:
   stock-tinder:
     build: .
     ports:
-      - "8050:8050"
+      - "8051:8051"
     volumes:
-      - ./data:/app/data
+      # Mount parquet data from stock-data-node (read/write for annotations)
+      - /home/daniel/stock-data-node/data/parquet:/data/parquet
+      # Mount watchlists from stock-data-node (read-only)
+      - /home/daniel/stock-data-node/data/watchlists:/data/watchlists:ro
+    environment:
+      - CONFIG_FILE=./config/config.docker.json
     restart: unless-stopped

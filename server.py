@@ -14,7 +14,7 @@ import re
 # =====================================================================
 # CONFIGURATION (T-REQ-010 / T-REQ-020 | F-SYS-205)
 # =====================================================================
-CONFIG_FILE = "./config/config.json"
+CONFIG_FILE = os.environ.get("CONFIG_FILE", "./config/config.json")
 EXTERNAL_PARQUET_DIR = None
 WATCHLIST_DIR = None
 ANNOTATION_FILE = "annotations.json"
