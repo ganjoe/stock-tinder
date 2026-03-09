@@ -1,0 +1,4 @@
+{
+    "EXTERNAL_PARQUET_DIR": "/home/daniel/stock-data-node/data/parquet",
+    "WATCHLIST_DIR": "/home/daniel/stock-data-node/data/watchlists"
+}

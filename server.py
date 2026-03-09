@@ -6,17 +6,42 @@ import os
 import json
 import glob
 import pandas as pd
+import numpy as np
 import threading
 from collections import defaultdict
 import re
 
 # =====================================================================
-# CONFIGURATION
+# CONFIGURATION (T-REQ-010 / T-REQ-020 | F-SYS-205)
 # =====================================================================
-DATA_DIR = "./data/market_cache" 
+CONFIG_FILE = "./config/config.json"
+EXTERNAL_PARQUET_DIR = None
+WATCHLIST_DIR = None
 ANNO_DIR = "./data/anno"
-DATA_FILE = "1D.json"
 ANNOTATION_FILE = "annotations.json"
+
+def load_global_config():
+    """Liest config.json und setzt EXTERNAL_PARQUET_DIR und WATCHLIST_DIR."""
+    global EXTERNAL_PARQUET_DIR, WATCHLIST_DIR
+    if not os.path.exists(CONFIG_FILE):
+        print(f"[CRITICAL] Config file {CONFIG_FILE} not found! No data will be available.")
+        return
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            cfg = json.load(f)
+        EXTERNAL_PARQUET_DIR = cfg.get("EXTERNAL_PARQUET_DIR")
+        WATCHLIST_DIR = cfg.get("WATCHLIST_DIR")
+        
+        if not EXTERNAL_PARQUET_DIR or not WATCHLIST_DIR:
+            print(f"[CRITICAL] Config file is incomplete! EXTERNAL_PARQUET_DIR or WATCHLIST_DIR missing.")
+        else:
+            print(f"[INFO] EXTERNAL_PARQUET_DIR = {EXTERNAL_PARQUET_DIR}")
+            print(f"[INFO] WATCHLIST_DIR        = {WATCHLIST_DIR}")
+    except Exception as e:
+        print(f"[ERROR] Failed to load {CONFIG_FILE}: {e}")
+
+# Beim Start einlesen
+load_global_config()
 
 FILE_LOCKS = defaultdict(threading.Lock)
 
@@ -45,52 +70,88 @@ class AnnotationPayload(BaseModel):
 # HELPER FUNCTIONS
 # =====================================================================
 def get_ticker_list():
-    if not os.path.exists(DATA_DIR):
+    """Liest verfügbare Ticker aus EXTERNAL_PARQUET_DIR (F-UI-240)."""
+    if not os.path.exists(EXTERNAL_PARQUET_DIR):
+        print(f"[WARN] EXTERNAL_PARQUET_DIR does not exist: {EXTERNAL_PARQUET_DIR}")
         return []
-    folders = [f.name for f in os.scandir(DATA_DIR) if f.is_dir()]
-    return sorted(folders)
+    try:
+        folders = [f.name for f in os.scandir(EXTERNAL_PARQUET_DIR) if f.is_dir()]
+        return sorted(folders)
+    except Exception as e:
+        print(f"[ERROR] get_ticker_list failed: {e}")
+        return []
 
 def load_chart_data(ticker: str):
-    filepath = os.path.join(DATA_DIR, ticker, DATA_FILE)
+    """
+    Liest 1D.parquet aus EXTERNAL_PARQUET_DIR und mappt Spalten auf das
+    TradingView-kompatible Format (F-DATA-210, F-DATA-220).
+    """
+    filepath = os.path.join(EXTERNAL_PARQUET_DIR, ticker, "1D.parquet")
     if not os.path.exists(filepath):
         return None
-        
+
     try:
-        # We just need to read the JSON and format it for TradingView
-        # TradingView expects: time (YYYY-MM-DD or unix timestamp), open, high, low, close, value (for volume)
-        with open(filepath, 'r') as f:
-            data = json.load(f)
-            
-        if not data: return []
-        
-        tv_data = []
-        for row in data:
-            # Map old/new keys
-            t = row.get('t') or row.get('date')
-            o = row.get('o') or row.get('open')
-            h = row.get('h') or row.get('high')
-            l = row.get('l') or row.get('low')
-            c = row.get('c') or row.get('close')
-            v = row.get('v') or row.get('volume')
-            
-            if t and o and h and l and c:
-                # TradingView expects time in seconds if it's a number, or YYYY-MM-DD string
-                # Data here is often unix timestamp in seconds
-                tv_data.append({
-                    "time": t,
-                    "open": float(o),
-                    "high": float(h),
-                    "low": float(l),
-                    "close": float(c),
-                    "value": float(v) if v else 0.0 # 'value' is used by TradingView for histogram/volume
-                })
-        
-        # Sort by time just in case
-        tv_data.sort(key=lambda x: x["time"])
-        return tv_data
+        df = pd.read_parquet(filepath, columns=["timestamp", "open", "high", "low", "close", "volume"])
+
+        # Column Mapping (F-DATA-220): TradingView erwartet time, open, high, low, close, value
+        df = df.rename(columns={
+            "timestamp": "time",
+            "volume":    "value"
+        })
+
+        # NaN → None für JSON-Kompatibilität
+        df = df.where(pd.notnull(df), None)
+
+        # Nach Zeit sortieren und als Liste ausgeben
+        df = df.sort_values("time")
+        return df.to_dict(orient="records")
+
     except Exception as e:
-        print(f"Error loading data for {ticker}: {e}")
+        print(f"[ERROR] load_chart_data({ticker}): {e}")
         return None
+
+
+def _insert_into_tree(tree: dict, parts: List[str], values: list):
+    """Baut einen verschachtelten Dict-Baum anhand eines Pfad-Arrays auf."""
+    current = tree
+    for key in parts[:-1]:
+        if key not in current:
+            current[key] = {}
+        current = current[key]
+    current[parts[-1]] = values
+
+
+def load_indicators(ticker: str) -> dict:
+    """
+    Liest indikator.parquet aus EXTERNAL_PARQUET_DIR und rekonstruiert
+    den nested JSON-Baum, den das Frontend erwartet (F-DATA-215).
+    Flat column name → nested tree: 'stock_ma_sma_50' → {'stock': {'ma': {'sma': {'50': [...]}}}}
+    """
+    filepath = os.path.join(EXTERNAL_PARQUET_DIR, ticker, "indikator.parquet")
+    if not os.path.exists(filepath):
+        return {}
+
+    try:
+        df = pd.read_parquet(filepath)
+
+        # NaN → None für JSON-Kompatibilität
+        df = df.where(pd.notnull(df), None)
+
+        result_tree: dict = {}
+        for col in df.columns:
+            # Zeitstempel-Spalte überspringen, gehört nicht in den Indikator-Baum
+            if col in ("t", "timestamp", "ticker"):
+                continue
+            parts = col.split("_")
+            values = df[col].tolist()
+            _insert_into_tree(result_tree, parts, values)
+
+        return result_tree
+
+    except Exception as e:
+        print(f"[ERROR] load_indicators({ticker}): {e}")
+        return {}
+
 
 def load_annotations(ticker: str):
     filepath = os.path.join(ANNO_DIR, ticker, ANNOTATION_FILE)
@@ -99,13 +160,14 @@ def load_annotations(ticker: str):
             return json.load(f)
     return {"human_annotations": [], "ai_predictions": []}
 
+
 def save_annotations(ticker: str, data: dict):
     ticker_anno_dir = os.path.join(ANNO_DIR, ticker)
     os.makedirs(ticker_anno_dir, exist_ok=True)
-    
+
     filepath = os.path.join(ticker_anno_dir, ANNOTATION_FILE)
     tmppath = filepath + ".tmp"
-    
+
     with FILE_LOCKS[ticker]:
         try:
             with open(tmppath, 'w') as f:
@@ -113,7 +175,7 @@ def save_annotations(ticker: str, data: dict):
             os.replace(tmppath, filepath)
             return True
         except Exception as e:
-            print(f"ERROR saving {ticker}: {e}")
+            print(f"[ERROR] saving annotations for {ticker}: {e}")
             if os.path.exists(tmppath):
                 os.remove(tmppath)
             return False
@@ -129,20 +191,12 @@ async def api_get_tickers():
 async def api_get_chart(ticker: str):
     data = load_chart_data(ticker)
     if data is None:
-        raise HTTPException(status_code=404, detail="Ticker not found")
+        raise HTTPException(status_code=404, detail=f"Chart data for '{ticker}' not found.")
     return data
 
 @app.get("/api/indicators/{ticker}")
 async def api_get_indicators(ticker: str):
-    filepath = os.path.join(DATA_DIR, ticker, "indikator.json")
-    if not os.path.exists(filepath):
-        return {}
-    try:
-        with open(filepath, 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"Error loading {filepath}: {e}")
-        return {}
+    return load_indicators(ticker)
 
 @app.get("/api/annotations/{ticker}")
 async def api_get_annotations(ticker: str):
@@ -158,43 +212,34 @@ async def api_post_annotations(ticker: str, payload: AnnotationPayload):
 
 @app.get("/api/watchlists")
 async def api_get_watchlists():
-    watchlist_dir = "./data/watchlist"
-    if not os.path.exists(watchlist_dir):
+    if not os.path.exists(WATCHLIST_DIR):
         return {"watchlists": []}
-    
-    files = [f for f in os.listdir(watchlist_dir) if f.endswith(".txt")]
+    files = [f for f in os.listdir(WATCHLIST_DIR) if f.endswith(".txt")]
     watchlists = [f.replace(".txt", "") for f in files]
     return {"watchlists": sorted(watchlists)}
 
-@app.get("/api/indicator_colors")
-async def api_indicator_colors():
+@app.get("/api/indicator_config")
+async def api_indicator_config():
     filepath = os.path.join("./data", "indikator_colors.json")
     if not os.path.exists(filepath):
         return {}
-        
     try:
         with open(filepath, 'r') as f:
             return json.load(f)
     except Exception as e:
-        print(f"Error reading {filepath}: {e}")
+        print(f"[ERROR] reading {filepath}: {e}")
         return {}
 
 @app.get("/api/watchlist/{watchlist_name}")
 async def api_get_watchlist_tickers(watchlist_name: str):
-    filepath = os.path.join("./data/watchlist", f"{watchlist_name}.txt")
+    filepath = os.path.join(WATCHLIST_DIR, f"{watchlist_name}.txt")
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Watchlist not found")
-        
     try:
         with open(filepath, 'r') as f:
             content = f.read()
-            
-        # Split by ;, space, tab, newline
-        tickers = [t.strip() for t in re.split(r'[;\s]+', content) if t.strip()]
-        
-        # Use dict.fromkeys to remove duplicates while preserving order
+        tickers = [t.strip() for t in re.split(r'[;,\s]+', content) if t.strip()]
         unique_tickers = list(dict.fromkeys(tickers))
-        
         return {"tickers": unique_tickers}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error parsing watchlist: {e}")

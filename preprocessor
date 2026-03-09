@@ -166,8 +166,17 @@ def process_all_tickers():
     all_parquet_dfs = []
 
     for ticker in ticker_folders:
-        json_path = os.path.join(MARKET_DIR, ticker, "1D.json")
-        if not os.path.exists(json_path):
+        # Check for 1D.json in 'charts' subfolder (new structure) or root (legacy/synthetic)
+        json_path_new = os.path.join(MARKET_DIR, ticker, "charts", "1D.json")
+        json_path_old = os.path.join(MARKET_DIR, ticker, "1D.json")
+        
+        if os.path.exists(json_path_new):
+            json_path = json_path_new
+            out_json_path = os.path.join(MARKET_DIR, ticker, "charts", "indikator.json")
+        elif os.path.exists(json_path_old):
+            json_path = json_path_old
+            out_json_path = os.path.join(MARKET_DIR, ticker, "indikator.json")
+        else:
             continue
             
         # 1. Rohe Daten laden
@@ -196,7 +205,6 @@ def process_all_tickers():
                 parquet_flat_df[flat_col_name] = ml_series
             
         # 3. Export 1: Die indikator.json für die GUI abspeichern
-        out_json_path = os.path.join(MARKET_DIR, ticker, "indikator.json")
         with open(out_json_path, "w") as f:
             json.dump(json_tree, f)
             

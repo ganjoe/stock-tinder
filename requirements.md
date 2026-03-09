@@ -24,21 +24,18 @@
 | F-UI-180 | UI | Multi-Pane Resizing | Trenner (Resizer) zwischen den Panes müssen beim Verschieben exakt der Maus folgen. Das Verschieben verändert proportional die Höhe des direkt darüber- und darunterliegenden Panes, während alle anderen konstant bleiben. | - |
 | F-UI-190 | UI | Resizer-Intaktheit | Nach dem dynamischen Ein- und Ausblenden von Panes müssen alle verblerequenz bleiben und sofort fehlerfrei nutzbar sein, ohne an falschen Positionen fixiert zu hängen. | - |
 
-# Requirements Backlog: Preprocessor & ML Output
+# Requirements Backlog: Data Source Integration (Parquet)
 
 | ID | Category | Title | Description | Covered By |
 | :--- | :--- | :--- | :--- | :--- |
-| F-PRE-010 | Architecture | Single-Source Config | Das System muss alle Indikatoren in einem zentralen "Rezeptbuch" (Konfigurationsobjekt) definieren, welches den strukturellen Pfad, den Berechnungstyp und Parametrisierung festlegt. | - |
-| F-PRE-020 | Processing | Dual-Output Engine | Für jeden Indikator muss die Engine zwingend zwei getrennte Berechnungsstränge bedienen: Absolute Metriken für das UI (JSON) und Metriken für das Machine Learning Modell (Parquet). | - |
-| F-PRE-030 | Data-Input | Input Data Contract | Das System erwartet als Input pro Ticker eine `1D.json` Datei, welche zwingend Arrays für Time (`t`), Close (`c`), High (`h`), Low (`l`) und Volume (`v`) bereitstellt. | - |
-| F-PRE-040 | Processing | Fallback & NaN-Handling | Fehler während einer Indikator-Berechnung dürfen das Batch-Processing nicht abbrechen, sondern generieren Null/NaN-Werte. | - |
-| F-PRE-050 | Export-GUI | Indikator JSON-Tree | Das System exportiert pro Ticker eine `indikator.json` mit verschachteltem JSON-Baum, auf 4 Nachkommastellen gerundet. | - |
-| F-PRE-060 | Export-ML | Global Feature Parquet | Das System aggregiert alle ML-Daten in einer flachen `features.parquet`. Config-Pfade werden zu flachen Spaltennamen. | - |
-| F-PRE-070 | Logic: MAs | SMA_DIST / EMA_DIST | Berechnet den gleitenden Durchschnitt. GUI-Wert und ML-Wert geben beide den **prozentualen Abstand** des Schlusskurses zum Durchschnitt zurück (`(Preis - MA) / MA`). | - |
-| F-PRE-080 | Logic: MAs | SMA_PRICE / EMA_PRICE | Berechnet den gleitenden Durchschnitt. GUI-Wert und ML-Wert geben beide den **absoluten Dollar-Wert** des Durchschnitts zurück. (Oft kombiniert mit `exclude_ml=True`). | - |
-| F-PRE-090 | Logic: Oscillator | STOCH_K | Berechnet den Stochastik-Oszillator K. GUI-Wert skaliert klassisch **0 bis 100**. ML-Wert wird auf **0.0 bis 1.0 normalisiert**. | - |
-| F-PRE-100 | Logic: Volatility | ADR_PCT / ATR_PCT | Berechnet Volatilität (Range oder Average True Range). GUI-Wert und ML-Wert geben beide die Schwankung **prozentual** (`Wert / Close`) zurück. (ADR ist geglättet über X Tage). | - |
-| F-PRE-110 | Logic: Volatility | ADR / ATR | Berechnet Volatilität. GUI-Wert und ML-Wert geben beide isoliert die **absolute Schwankung in Währung** (z.B. Dollar) aus. | - |
-| F-PRE-120 | Logic: Volume | VOL_RATIO | Berechnet das Verhältnis des aktuellen Volumens zum gleitenden Durchschnitt. GUI-Wert und ML-Wert sind beide das **Ratio** (`Aktuelles Volumen / Durchschnittsvolumen`). | - |
-| F-PRE-130 | Logic: Volume | VOL_MA | Berechnet den einfachen gleitenden Volumendurchschnitt. GUI-Wert und ML-Wert geben beide die **absolute Stückzahl** aus. | - |
-| F-PRE-140 | Configuration | ML Exclusion Flag | Das Config-Objekt unterstützt ein `exclude_ml`: True Flag. Ist dies gesetzt, berechnet die Engine den Indikator regulär für die GUI .json, fügt die Datenspalte aber absichtlich **nicht** der `features.parquet` hinzu. | - |
+| F-SYS-200 | System | Cross-Project Volume | Das System muss Lese-Zugriff auf das Datenverzeichnis von `stock-data-node` (Parquet) haben (z.B. am Pfad `/home/daniel/stock-data-node/data/parquet` lokal oder im Docker via Volume). | - |
+| F-SYS-205 | Configuration | External Parquet Path | Das System muss eine `config.json` in einem `/config/` Verzeichnis lesen, welche zwingend den absoluten Pfad zum externen Parquet-Datenverzeichnis definiert. Hardcoding oder Fallbacks auf lokale Ordner sind nicht erlaubt. | - |
+| F-SYS-206 | Configuration | External Watchlist Path | Die `config.json` muss zwingend den Pfad `WATCHLIST_DIR` definieren. Ein Fallback auf lokale Verzeichnisse ist untersagt, da das System keine eigene Datenhaltung mehr besitzt. | - |
+| F-DATA-210 | Server | Parquet-to-JSON Bridge | Der Backend-Server (`server.py`) liest das externe `1D.parquet` und liefert es als JSON an das Frontend aus. | - |
+| F-DATA-215 | Server | Indikator Parquet Bridge | Der Backend-Server (`server.py`) liest pro Ticker die extern erzeugte `indikator.parquet` und liefert die Daten strukturiert als JSON an das Frontend aus. | - |
+| F-DATA-230 | Server | Multi-Delimiter Parsing | Das System muss beim Einlesen der Watchlisten neben Whitespace auch Kommata und Semikolons als Trennzeichen unterstützen. | - |
+| F-DATA-220 | Server | Column Mapping | Die Parquet-Spalten (`timestamp`, `open`, `high`, `low`, `close`, `volume`) müssen on-the-fly durch den Server gemappt werden (zu `t`, `o`, `h`, `l`, `c`, `v`). | - |
+| F-UI-240 | Backend | Ticker-Discovery | Die verfügbaren Ticker werden dynamisch aus den Unterverzeichnissen des konfigurierten externen Parquet-Stammverzeichnisses gelesen. | - |
+| F-ARCH-250 | Architektur | Preprocessor Deprecation | Der interne `preprocessor` wird nicht mehr verwendet und muss nicht angepasst werden. Die Datenaufbereitung (Charts & Indikatoren) obliegt alleinig der externen Datenquelle. | - |
+
+
