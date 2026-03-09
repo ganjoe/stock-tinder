@@ -17,7 +17,6 @@ import re
 CONFIG_FILE = "./config/config.json"
 EXTERNAL_PARQUET_DIR = None
 WATCHLIST_DIR = None
-ANNO_DIR = "./data/anno"
 ANNOTATION_FILE = "annotations.json"
 
 def load_global_config():
@@ -154,7 +153,9 @@ def load_indicators(ticker: str) -> dict:
 
 
 def load_annotations(ticker: str):
-    filepath = os.path.join(ANNO_DIR, ticker, ANNOTATION_FILE)
+    if not EXTERNAL_PARQUET_DIR:
+        return {"human_annotations": [], "ai_predictions": []}
+    filepath = os.path.join(EXTERNAL_PARQUET_DIR, ticker, ANNOTATION_FILE)
     if os.path.exists(filepath):
         with open(filepath, 'r') as f:
             return json.load(f)
@@ -162,7 +163,9 @@ def load_annotations(ticker: str):
 
 
 def save_annotations(ticker: str, data: dict):
-    ticker_anno_dir = os.path.join(ANNO_DIR, ticker)
+    if not EXTERNAL_PARQUET_DIR:
+        return False
+    ticker_anno_dir = os.path.join(EXTERNAL_PARQUET_DIR, ticker)
     os.makedirs(ticker_anno_dir, exist_ok=True)
 
     filepath = os.path.join(ticker_anno_dir, ANNOTATION_FILE)

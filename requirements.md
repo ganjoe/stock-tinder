@@ -37,5 +37,6 @@
 | F-DATA-220 | Server | Column Mapping | Die Parquet-Spalten (`timestamp`, `open`, `high`, `low`, `close`, `volume`) müssen on-the-fly durch den Server gemappt werden (zu `t`, `o`, `h`, `l`, `c`, `v`). | - |
 | F-UI-240 | Backend | Ticker-Discovery | Die verfügbaren Ticker werden dynamisch aus den Unterverzeichnissen des konfigurierten externen Parquet-Stammverzeichnisses gelesen. | - |
 | F-ARCH-250 | Architektur | Preprocessor Deprecation | Der interne `preprocessor` wird nicht mehr verwendet und muss nicht angepasst werden. Die Datenaufbereitung (Charts & Indikatoren) obliegt alleinig der externen Datenquelle. | - |
+| F-DATA-240 | Storage | External Annotation Storage | Annotationen (`annotations.json`) werden ab jetzt pro Ticker direkt im jeweiligen Unterverzeichnis des externen Parquet-Stammverzeichnisses (z.B. `/.../<tickername>/annotations.json`) gespeichert. | - |
 
 
