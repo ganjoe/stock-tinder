@@ -20,4 +20,4 @@ EXPOSE 8050
 ENV DASH_DEBUG_MODE=False
 
 # Run main.py when the container launches
-CMD ["python", "main.py"]
+CMD ["python", "server.py"]
