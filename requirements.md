@@ -38,5 +38,11 @@
 | F-UI-240 | Backend | Ticker-Discovery | Die verfügbaren Ticker werden dynamisch aus den Unterverzeichnissen des konfigurierten externen Parquet-Stammverzeichnisses gelesen. | - |
 | F-ARCH-250 | Architektur | Preprocessor Deprecation | Der interne `preprocessor` wird nicht mehr verwendet und muss nicht angepasst werden. Die Datenaufbereitung (Charts & Indikatoren) obliegt alleinig der externen Datenquelle. | - |
 | F-DATA-240 | Storage | External Annotation Storage | Annotationen (`annotations.json`) werden ab jetzt pro Ticker direkt im jeweiligen Unterverzeichnis des externen Parquet-Stammverzeichnisses (z.B. `/.../<tickername>/annotations.json`) gespeichert. | - |
+| F-DATA-300 | API | Feature Config Source | Die Visualisierungs-Metadaten werden primär aus der externen `features.json` des Daten-Nodes bezogen. | - |
+| F-DATA-350 | Configuration | Integrated Color Aliases | Die `features.json` enthält eine globale Sektion `aliases` für standardisierte Farbcodes. | - |
+| F-UI-400 | UI | Root-Level Master Toggle | Das Indikatoren-Dropdown bietet nur die Root-Keys der `features.json` zur Auswahl (keine Einzelauswahl von Gruppenmitgliedern). | - |
+| F-ARCH-410 | Architecture | Hierarchical Rendering | Die Aktivierung eines Root-Features rendert rekursiv alle untergeordneten Child-Datenreihen. | - |
+| F-ARCH-420 | Architecture | Strict Pane Validation | Indikatoren ohne explizites `pane` Attribut (auch nicht vererbt) werden ignoriert und nicht gerendert. | - |
+| F-ARCH-430 | Architecture | Property Inheritance | Sub-Indikatoren erben fehlende Attribute (wie `period`, `style`) von ihren übergeordneten Feature-Objekten. | - |
 
 

@@ -17,11 +17,12 @@ import re
 CONFIG_FILE = os.environ.get("CONFIG_FILE", "./config/config.json")
 EXTERNAL_PARQUET_DIR = None
 WATCHLIST_DIR = None
+FEATURE_CONFIG_PATH = None
 ANNOTATION_FILE = "annotations.json"
 
 def load_global_config():
     """Liest config.json und setzt EXTERNAL_PARQUET_DIR und WATCHLIST_DIR."""
-    global EXTERNAL_PARQUET_DIR, WATCHLIST_DIR
+    global EXTERNAL_PARQUET_DIR, WATCHLIST_DIR, FEATURE_CONFIG_PATH
     if not os.path.exists(CONFIG_FILE):
         print(f"[CRITICAL] Config file {CONFIG_FILE} not found! No data will be available.")
         return
@@ -30,12 +31,14 @@ def load_global_config():
             cfg = json.load(f)
         EXTERNAL_PARQUET_DIR = cfg.get("EXTERNAL_PARQUET_DIR")
         WATCHLIST_DIR = cfg.get("WATCHLIST_DIR")
+        FEATURE_CONFIG_PATH = cfg.get("FEATURE_CONFIG_PATH")
         
-        if not EXTERNAL_PARQUET_DIR or not WATCHLIST_DIR:
-            print(f"[CRITICAL] Config file is incomplete! EXTERNAL_PARQUET_DIR or WATCHLIST_DIR missing.")
+        if not EXTERNAL_PARQUET_DIR or not WATCHLIST_DIR or not FEATURE_CONFIG_PATH:
+            print(f"[CRITICAL] Config file is incomplete! Missing directories or FEATURE_CONFIG_PATH.")
         else:
             print(f"[INFO] EXTERNAL_PARQUET_DIR = {EXTERNAL_PARQUET_DIR}")
             print(f"[INFO] WATCHLIST_DIR        = {WATCHLIST_DIR}")
+            print(f"[INFO] FEATURE_CONFIG_PATH  = {FEATURE_CONFIG_PATH}")
     except Exception as e:
         print(f"[ERROR] Failed to load {CONFIG_FILE}: {e}")
 
@@ -126,7 +129,7 @@ def load_indicators(ticker: str) -> dict:
     den nested JSON-Baum, den das Frontend erwartet (F-DATA-215).
     Flat column name → nested tree: 'stock_ma_sma_50' → {'stock': {'ma': {'sma': {'50': [...]}}}}
     """
-    filepath = os.path.join(EXTERNAL_PARQUET_DIR, ticker, "indikator.parquet")
+    filepath = os.path.join(EXTERNAL_PARQUET_DIR, ticker, "1D_features.parquet")
     if not os.path.exists(filepath):
         return {}
 
@@ -221,16 +224,20 @@ async def api_get_watchlists():
     watchlists = [f.replace(".txt", "") for f in files]
     return {"watchlists": sorted(watchlists)}
 
-@app.get("/api/indicator_config")
-async def api_indicator_config():
-    filepath = os.path.join("./data", "indikator_colors.json")
-    if not os.path.exists(filepath):
+@app.get("/api/feature_config")
+async def api_feature_config():
+    """
+    Reads features.json from the data-node config directory and returns it as JSON (F-DATA-300).
+    Replaces the deprecated /api/indicator_config endpoint.
+    """
+    if not FEATURE_CONFIG_PATH or not os.path.exists(FEATURE_CONFIG_PATH):
+        print(f"[WARN] FEATURE_CONFIG_PATH does not exist: {FEATURE_CONFIG_PATH}")
         return {}
     try:
-        with open(filepath, 'r') as f:
+        with open(FEATURE_CONFIG_PATH, 'r') as f:
             return json.load(f)
     except Exception as e:
-        print(f"[ERROR] reading {filepath}: {e}")
+        print(f"[ERROR] reading {FEATURE_CONFIG_PATH}: {e}")
         return {}
 
 @app.get("/api/watchlist/{watchlist_name}")

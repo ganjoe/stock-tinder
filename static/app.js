@@ -25,7 +25,7 @@ let currentWatchlist = null;
 let currentData = [];
 let dataCache = new Map();
 let annotations = { human_annotations: [], ai_predictions: [] };
-let indicatorStyleConfig = { aliases: {}, indicators: {} };
+let featureConfig = { aliases: {}, features: {} };
 let currentIndicatorData = {};
 
 // Pane management
@@ -56,21 +56,21 @@ const COLOR_BOT = 'rgba(0, 0, 255, 0.2)';
 // =====================================
 document.addEventListener("DOMContentLoaded", async () => {
     initCharts();
-    await fetchIndicatorConfig();
+    await fetchFeatureConfig();
     renderPaneDropdown();
     await fetchAllTickers();
     await fetchWatchlists();
     setupEventListeners();
 });
 
-async function fetchIndicatorConfig() {
+async function fetchFeatureConfig() {
     try {
-        const res = await fetch('/api/indicator_colors');
-        indicatorStyleConfig = await res.json();
-        if (!indicatorStyleConfig.aliases) indicatorStyleConfig.aliases = {};
-        if (!indicatorStyleConfig.indicators) indicatorStyleConfig.indicators = {};
+        const res = await fetch('/api/feature_config');
+        featureConfig = await res.json();
+        if (!featureConfig.aliases) featureConfig.aliases = {};
+        if (!featureConfig.features) featureConfig.features = {};
     } catch (e) {
-        console.error("Failed to load indicator colors config:", e);
+        console.error("Failed to load feature config:", e);
     }
 }
 
@@ -609,51 +609,50 @@ function renderIndicatorDropdown() {
     if (!menu) return;
     menu.innerHTML = '';
 
-    if (!currentIndicatorData) return;
+    if (!featureConfig.features || !currentIndicatorData) return;
 
-    const indicators = extractIndicatorLeaves(currentIndicatorData);
-
-    // Group by category
+    // Group root features by their pane
     const grouped = {};
-    indicators.forEach(ind => {
-        const conf = getIndicatorConfig(ind.indicatorName, ind.sourceType);
-        const cat = conf._category;
+    Object.keys(featureConfig.features).forEach(featureName => {
+        const conf = featureConfig.features[featureName];
+        const cat = conf.pane;
+        if (!cat) return; // Strict validation: skip root features without a pane
         if (!grouped[cat]) grouped[cat] = [];
-        grouped[cat].push(ind);
+        grouped[cat].push(featureName);
     });
 
     // Render grouped
     for (const cat of PANE_CATEGORIES) {
-        const items = grouped[cat];
-        if (!items || items.length === 0) continue;
+        const featureNames = grouped[cat];
+        if (!featureNames || featureNames.length === 0) continue;
 
         const header = document.createElement('div');
         header.className = 'dropdown-header';
         header.textContent = cat.toUpperCase();
         menu.appendChild(header);
 
-        items.forEach(ind => {
+        featureNames.forEach(featureName => {
+            const conf = featureConfig.features[featureName];
             const div = document.createElement('div');
             div.className = 'form-check';
 
             const input = document.createElement('input');
             input.className = 'form-check-input';
             input.type = 'checkbox';
-            input.id = `ind-toggle-${sanitizeId(ind.indicatorName)}`;
-            input.checked = activeIndicators.has(ind.indicatorName);
+            input.id = `ind-toggle-${sanitizeId(featureName)}`;
+            input.checked = activeIndicators.has(featureName);
 
             input.addEventListener('change', (e) => {
-                toggleIndicator(ind.indicatorName, ind.fullName, ind.dataArray, e.target.checked, ind.sourceType);
+                toggleFeatureGroup(featureName, e.target.checked);
             });
 
             const label = document.createElement('label');
             label.className = 'form-check-label';
             label.htmlFor = input.id;
 
-            // Color swatch
-            const conf = getIndicatorConfig(ind.indicatorName);
+            // Color swatch from root feature
             const color = resolveColor(conf.color);
-            label.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:4px;"></span>${ind.indicatorName}`;
+            label.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:4px;"></span>${featureName}`;
 
             div.appendChild(input);
             div.appendChild(label);
@@ -672,7 +671,7 @@ function extractIndicatorLeaves(indicatorData) {
 
     function traverse(obj, currentPath, sourceType) {
         if (Array.isArray(obj)) {
-            const indicatorName = currentPath.slice(1).join('_');
+            const indicatorName = currentPath.join('_');
             const fullName = currentPath.join('_');
             leaves.push({ indicatorName, fullName, sourceType, dataArray: obj });
             return;
@@ -692,92 +691,96 @@ function extractIndicatorLeaves(indicatorData) {
     return leaves;
 }
 
-function getIndicatorConfig(labelName, sourceType) {
-    let matched = indicatorStyleConfig.indicators && indicatorStyleConfig.indicators[labelName];
+function resolveFeatureRenderUnits(featureName, indicatorDataTree) {
+    const rootConfig = featureConfig.features[featureName];
+    if (!rootConfig) return [];
 
-    if (!matched && indicatorStyleConfig.indicators) {
-        for (const key of Object.keys(indicatorStyleConfig.indicators)) {
-            if (labelName.startsWith(key + '_') || labelName === key) {
-                matched = indicatorStyleConfig.indicators[key];
-                break;
+    const leaves = extractIndicatorLeaves(indicatorDataTree);
+    const results = [];
+
+    leaves.forEach(leaf => {
+        // Match root feature name or prefix
+        if (leaf.indicatorName === featureName || leaf.indicatorName.startsWith(featureName + '_')) {
+            // Determine child key if any
+            let childKey = null;
+            if (leaf.indicatorName.startsWith(featureName + '_')) {
+                childKey = leaf.indicatorName.slice(featureName.length + 1);
             }
+
+            const childConfig = (childKey && rootConfig[childKey]) ? rootConfig[childKey] : {};
+
+            // Property Inheritance (F-ARCH-430)
+            const merged = { ...rootConfig, ...childConfig };
+
+            // Strict Pane Validation (F-ARCH-420)
+            if (!merged.pane) return;
+
+            results.push({
+                groupKey: featureName,
+                seriesKey: leaf.fullName,
+                pane: merged.pane,
+                color: resolveColor(merged.color),
+                style: merged.style || 'solid',
+                chart_type: merged.chart_type || (CATEGORY_DEFAULTS[merged.pane] || { chart_type: 'line' }).chart_type,
+                thickness: merged.thickness || 2,
+                dataArray: leaf.dataArray
+            });
         }
-    }
+    });
 
-    const conf = matched ? { ...matched } : {};
-
-    let cat = conf.type || (sourceType === 'volume' ? 'vol' : 'price');
-    if (!PANE_CATEGORIES.includes(cat)) {
-        console.warn(`[Indicator] "${labelName}" has unknown type "${cat}", defaulting to "price".`);
-        cat = 'price';
-    }
-    conf._category = cat;
-
-    if (!conf.chart_type) {
-        conf.chart_type = (CATEGORY_DEFAULTS[cat] || { chart_type: 'line' }).chart_type;
-    }
-
-    return conf;
+    return results;
 }
 
 function sanitizeId(name) {
     return name.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-function toggleIndicator(labelName, fullName, dataArray, isChecked, sourceType) {
+function toggleFeatureGroup(featureName, isChecked) {
     if (isChecked) {
-        activeIndicators.add(labelName);
-        drawIndicatorSeries(labelName, fullName, dataArray, sourceType);
+        const units = resolveFeatureRenderUnits(featureName, currentIndicatorData);
+        units.forEach(unit => drawIndicatorSeries(unit));
+        activeIndicators.add(featureName);
     } else {
-        activeIndicators.delete(labelName);
-        removeIndicatorSeries(fullName);
+        // Find all active series belonging to this group
+        const toRemove = [];
+        for (const [fullName, entry] of Object.entries(indicatorSeriesMap)) {
+            if (entry.groupKey === featureName) {
+                toRemove.push(fullName);
+            }
+        }
+        toRemove.forEach(removeIndicatorSeries);
+        activeIndicators.delete(featureName);
     }
 }
 
-function drawIndicatorSeries(labelName, fullName, dataArray, sourceType) {
-    if (indicatorSeriesMap[fullName]) return;
+function drawIndicatorSeries(unit) {
+    if (indicatorSeriesMap[unit.seriesKey]) return;
 
-    const conf = getIndicatorConfig(labelName, sourceType);
-    const category = conf._category;
-
+    const category = unit.pane;
     // Auto-open pane if needed (F-UI-160)
     togglePaneVisibility(category, true);
 
     const pane = paneRegistry.get(category);
-    if (!pane || !pane.isVisible || !pane.chartInstance) {
-        console.warn(`[Indicator] No pane for category "${category}", skipping "${labelName}".`);
-        return;
-    }
+    if (!pane || !pane.isVisible || !pane.chartInstance) return;
 
     const chartInstance = pane.chartInstance;
 
     // Styling
-    let color = resolveColor(conf.color) || '#FFFFFF';
-    let lineWidth = conf.thickness || 2;
     let lineStyle = 0;
-    if (conf.style === 'dotted') lineStyle = 1;
-    if (conf.style === 'dashed') lineStyle = 2;
-
-    // Fallback color if no config
-    if (!conf.color) {
-        let hash = 0;
-        for (let i = 0; i < labelName.length; i++) hash = labelName.charCodeAt(i) + ((hash << 5) - hash);
-        color = `hsl(${Math.abs(hash) % 360}, 70%, 60%)`;
-    }
+    if (unit.style === 'dotted') lineStyle = 1;
+    if (unit.style === 'dashed') lineStyle = 2;
 
     // Create series based on chart_type
     let series;
-    const chartType = conf.chart_type || 'line';
-
-    if (chartType === 'bar') {
+    if (unit.chart_type === 'bar') {
         series = chartInstance.addHistogramSeries({
-            color: color,
+            color: unit.color,
             priceFormat: { type: 'volume' },
             priceScaleId: 'right',
         });
-    } else if (chartType === 'scatter') {
+    } else if (unit.chart_type === 'scatter') {
         series = chartInstance.addLineSeries({
-            color: color,
+            color: unit.color,
             lineWidth: 0,
             lineVisible: false,
             crosshairMarkerVisible: true,
@@ -790,8 +793,8 @@ function drawIndicatorSeries(labelName, fullName, dataArray, sourceType) {
     } else {
         // line (default)
         series = chartInstance.addLineSeries({
-            color: color,
-            lineWidth: lineWidth,
+            color: unit.color,
+            lineWidth: unit.thickness,
             lineStyle: lineStyle,
             crosshairMarkerVisible: false,
             priceScaleId: 'right',
@@ -799,10 +802,15 @@ function drawIndicatorSeries(labelName, fullName, dataArray, sourceType) {
     }
 
     // Align data
-    const alignedData = alignIndicatorData(currentData, dataArray);
+    const alignedData = alignIndicatorData(currentData, unit.dataArray);
     series.setData(alignedData);
 
-    indicatorSeriesMap[fullName] = { series, chartInstance, category, labelName };
+    indicatorSeriesMap[unit.seriesKey] = {
+        series,
+        chartInstance,
+        category,
+        groupKey: unit.groupKey
+    };
 }
 
 function removeIndicatorSeries(fullName) {
@@ -824,8 +832,8 @@ function alignIndicatorData(priceData, indicatorValues) {
 
 function resolveColor(colorNameOrHex) {
     if (!colorNameOrHex) return '#FFFFFF';
-    if (indicatorStyleConfig.aliases && indicatorStyleConfig.aliases[colorNameOrHex]) {
-        return indicatorStyleConfig.aliases[colorNameOrHex];
+    if (featureConfig.aliases && featureConfig.aliases[colorNameOrHex]) {
+        return featureConfig.aliases[colorNameOrHex];
     }
     return colorNameOrHex;
 }
@@ -1004,12 +1012,10 @@ function redrawActiveIndicators() {
 
     if (!currentIndicatorData) return;
 
-    // Re-traverse and re-draw active ones
-    const indicators = extractIndicatorLeaves(currentIndicatorData);
-    indicators.forEach(ind => {
-        if (activeIndicators.has(ind.indicatorName)) {
-            drawIndicatorSeries(ind.indicatorName, ind.fullName, ind.dataArray, ind.sourceType);
-        }
+    // Re-draw active ones using the new hierarchical logic (Master Toggle)
+    activeIndicators.forEach(featureName => {
+        const units = resolveFeatureRenderUnits(featureName, currentIndicatorData);
+        units.forEach(unit => drawIndicatorSeries(unit));
     });
 }
 
