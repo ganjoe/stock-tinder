@@ -8,6 +8,8 @@ services:
       - /home/daniel/stock-data-node/data/parquet:/data/parquet
       # Mount watchlists from stock-data-node (read-only)
       - /home/daniel/stock-data-node/data/watchlists:/data/watchlists:ro
+      # Mount config from stock-data-node (read-only)
+      - /home/daniel/stock-data-node/config:/data/config:ro
     environment:
       - CONFIG_FILE=./config/config.docker.json
     restart: unless-stopped
