@@ -1,4 +1,5 @@
 {
-    "EXTERNAL_PARQUET_DIR": "/data/parquet",
-    "WATCHLIST_DIR": "/data/watchlists"
+    "EXTERNAL_PARQUET_DIR": "/home/daniel/stock-data-node/data/parquet",
+    "WATCHLIST_DIR": "/home/daniel/stock-data-node/data/watchlists",
+    "FEATURE_CONFIG_PATH": "/home/daniel/stock-data-node/config/features.json"
 }
