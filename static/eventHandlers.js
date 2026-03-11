@@ -153,6 +153,11 @@ export function setupEventListeners() {
         applyAutoScaleToAll(e.target.checked);
     });
 
+    // xLock Toggle
+    document.getElementById('xlock-toggle').addEventListener('change', (e) => {
+        state.isXLocked = e.target.checked;
+    });
+
     // Close buttons on panes
     document.querySelectorAll('.pane-close-btn').forEach(btn => {
         btn.addEventListener('click', () => {

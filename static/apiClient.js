@@ -16,6 +16,15 @@ export async function fetchAllTickers() {
     datalist.innerHTML = '';
 }
 
+export async function fetchChartConfig() {
+    try {
+        const res = await fetch('/api/chart_config');
+        state.chartConfig = await res.json();
+    } catch (e) {
+        console.error("Failed to load chart config:", e);
+    }
+}
+
 export async function fetchWatchlists() {
     const res = await fetch('/api/watchlists');
     const data = await res.json();
@@ -72,6 +81,14 @@ export async function loadSpecificTicker(ticker) {
     if (newIndex !== -1) {
         state.currentIndex = newIndex;
         if (tSelect) tSelect.value = ticker;
+    }
+
+    // Capture range before switching if locked
+    if (state.isXLocked) {
+        const pricePane = state.paneRegistry.get('price');
+        if (pricePane && pricePane.chartInstance) {
+            state.savedTimeRange = pricePane.chartInstance.timeScale().getVisibleRange();
+        }
     }
 
     try {
@@ -161,9 +178,28 @@ export function renderChart() {
     const isAuto = document.getElementById('autoscale-toggle').checked;
     applyAutoScaleToAll(isAuto);
 
-    for (const pane of state.paneRegistry.values()) {
-        if (pane.isVisible && pane.chartInstance) {
-            pane.chartInstance.timeScale().fitContent();
+    // X-Axis Handling (F-UI-510, F-UI-520, F-UI-530)
+    if (state.isXLocked && state.savedTimeRange && state.savedTimeRange.from) {
+        for (const pane of state.paneRegistry.values()) {
+            if (pane.isVisible && pane.chartInstance) {
+                pane.chartInstance.timeScale().setVisibleRange(state.savedTimeRange);
+            }
+        }
+    } else {
+        // Default: Show configurable candle count and add right padding (F-UI-520, F-UI-525)
+        const visibleCount = state.chartConfig.defaultVisibleCandles || 126;
+        const total = state.currentData.length;
+        const offset = state.chartConfig.rightOffsetPercent || 20;
+
+        const padding = Math.floor(visibleCount * (offset / (100 - offset)));
+        for (const pane of state.paneRegistry.values()) {
+            if (pane.isVisible && pane.chartInstance) {
+                pane.chartInstance.timeScale().applyOptions({ rightOffset: padding });
+                pane.chartInstance.timeScale().setVisibleLogicalRange({
+                    from: total - visibleCount,
+                    to: total - 1 + padding
+                });
+            }
         }
     }
 }

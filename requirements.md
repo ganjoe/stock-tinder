@@ -44,5 +44,11 @@
 | F-ARCH-410 | Architecture | Hierarchical Rendering | Die Aktivierung eines Root-Features rendert rekursiv alle untergeordneten Child-Datenreihen. | - |
 | F-ARCH-420 | Architecture | Strict Pane Validation | Indikatoren ohne explizites `pane` Attribut (auch nicht vererbt) werden ignoriert und nicht gerendert. | - |
 | F-ARCH-430 | Architecture | Property Inheritance | Sub-Indikatoren erben fehlende Attribute (wie `period`, `style`) von ihren übergeordneten Feature-Objekten. | - |
-
+| F-UI-500 | UI | xLock Toggle | Das System verfügt über eine Switch-Komponente namens "xLock" in der UI. | [index.html](file:///home/daniel/stock-tinder/static/index.html) |
+| F-UI-510 | UX | Zeitachsen-Lock | Ist "xLock" aktiv (ON), bleibt der exakte Datumsbereich (from/to) beim Ticker-Wechsel erhalten. | [apiClient.js](file:///home/daniel/stock-tinder/static/apiClient.js) |
+| F-UI-520 | UX | Konfigurierbarer Default Zoom | Ist "xLock" inaktiv (OFF), zeigt das System eine via `chart.json` definierte Anzahl an Kerzen an (Default: 126). | [apiClient.js](file:///home/daniel/stock-tinder/static/apiClient.js) |
+| F-UI-525 | UI | Universelles Right Padding | Bei xLock=OFF wird stets ein rechter Rand-Offset (Padding) von ca. 20% gewahrt - auch bei kurzen Historien (z.B. Ticker BETA). | [apiClient.js](file:///home/daniel/stock-tinder/static/apiClient.js) |
+| F-SYS-550 | System | Chart Konfigurationsdatei | Das System liest Anzeigeparameter (`defaultVisibleCandles`, `rightOffsetPercent`) aus `config/chart.json`. | [server.py](file:///home/daniel/stock-tinder/server.py) |
+| F-SYS-560 | System | Config Fallback | Fehlen Werte in der `chart.json`, nutzt das System stabile Defaults (126 Candles, 20% Offset). | [server.py](file:///home/daniel/stock-tinder/server.py) |
+| F-DATA-570 | Server | Chart Config API | Der Server exploniert die Einstellungen der `chart.json` über den API-Endpunkt `/api/chart_config`. | [server.py](file:///home/daniel/stock-tinder/server.py) |
 

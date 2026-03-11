@@ -12,6 +12,8 @@ import { state } from './state.js';
 document.addEventListener("DOMContentLoaded", async () => {
     initCharts();
     await fetchFeatureConfig();
+    const { fetchChartConfig } = await import('./apiClient.js');
+    await fetchChartConfig();
     renderPaneDropdown();
     await fetchAllTickers();
     await fetchWatchlists();

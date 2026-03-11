@@ -18,11 +18,12 @@ CONFIG_FILE = os.environ.get("CONFIG_FILE", "./config/config.json")
 EXTERNAL_PARQUET_DIR = None
 WATCHLIST_DIR = None
 FEATURE_CONFIG_PATH = None
+CHART_CONFIG_PATH = None
 ANNOTATION_FILE = "annotations.json"
 
 def load_global_config():
     """Liest config.json und setzt EXTERNAL_PARQUET_DIR und WATCHLIST_DIR."""
-    global EXTERNAL_PARQUET_DIR, WATCHLIST_DIR, FEATURE_CONFIG_PATH
+    global EXTERNAL_PARQUET_DIR, WATCHLIST_DIR, FEATURE_CONFIG_PATH, CHART_CONFIG_PATH
     if not os.path.exists(CONFIG_FILE):
         print(f"[CRITICAL] Config file {CONFIG_FILE} not found! No data will be available.")
         return
@@ -32,6 +33,7 @@ def load_global_config():
         EXTERNAL_PARQUET_DIR = cfg.get("EXTERNAL_PARQUET_DIR")
         WATCHLIST_DIR = cfg.get("WATCHLIST_DIR")
         FEATURE_CONFIG_PATH = cfg.get("FEATURE_CONFIG_PATH")
+        CHART_CONFIG_PATH = os.path.join(os.path.dirname(FEATURE_CONFIG_PATH), "chart.json")
         
         if not EXTERNAL_PARQUET_DIR or not WATCHLIST_DIR or not FEATURE_CONFIG_PATH:
             print(f"[CRITICAL] Config file is incomplete! Missing directories or FEATURE_CONFIG_PATH.")
@@ -239,6 +241,17 @@ async def api_feature_config():
     except Exception as e:
         print(f"[ERROR] reading {FEATURE_CONFIG_PATH}: {e}")
         return {}
+
+@app.get("/api/chart_config")
+async def api_chart_config():
+    if not CHART_CONFIG_PATH or not os.path.exists(CHART_CONFIG_PATH):
+        return {"defaultVisibleCandles": 126, "rightOffsetPercent": 20}
+    try:
+        with open(CHART_CONFIG_PATH, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[ERROR] reading {CHART_CONFIG_PATH}: {e}")
+        return {"defaultVisibleCandles": 126, "rightOffsetPercent": 20}
 
 @app.get("/api/watchlist/{watchlist_name}")
 async def api_get_watchlist_tickers(watchlist_name: str):

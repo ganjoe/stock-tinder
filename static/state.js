@@ -41,6 +41,9 @@ export const state = {
 
     // Layout
     isTableVisible: localStorage.getItem('tableVisible') !== 'false',
+    isXLocked: false,
+    savedTimeRange: null,
+    chartConfig: { defaultVisibleCandles: 126, rightOffsetPercent: 20 },
     selectionSeries: null,
     selectionRange: { start: null, end: null },
     storedPaneHeights: {},
