@@ -1,5 +1,5 @@
 {
     "EXTERNAL_PARQUET_DIR": "/data/parquet",
     "WATCHLIST_DIR": "/data/watchlists",
-    "FEATURE_CONFIG_PATH": "/data/config/features.json"
+    "FEATURE_CONFIG_PATH": "/data/features_config/features.json"
 }

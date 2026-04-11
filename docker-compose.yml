@@ -10,6 +10,8 @@ services:
       - /home/daniel/stock-data-node/data/watchlists:/data/watchlists:ro
       # Mount config from stock-data-node (read-only)
       - /home/daniel/stock-data-node/config:/data/config:ro
+      # Mount features config from stock-data-features (read-only)
+      - /home/daniel/stock-data-features/config:/data/features_config:ro
     environment:
       - CONFIG_FILE=./config/config.docker.json
     restart: unless-stopped
