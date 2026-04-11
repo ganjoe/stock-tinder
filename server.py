@@ -115,21 +115,11 @@ def load_chart_data(ticker: str):
         return None
 
 
-def _insert_into_tree(tree: dict, parts: List[str], values: list):
-    """Baut einen verschachtelten Dict-Baum anhand eines Pfad-Arrays auf."""
-    current = tree
-    for key in parts[:-1]:
-        if key not in current:
-            current[key] = {}
-        current = current[key]
-    current[parts[-1]] = values
-
-
 def load_indicators(ticker: str) -> dict:
     """
-    Liest indikator.parquet aus EXTERNAL_PARQUET_DIR und rekonstruiert
-    den nested JSON-Baum, den das Frontend erwartet (F-DATA-215).
-    Flat column name → nested tree: 'stock_ma_sma_50' → {'stock': {'ma': {'sma': {'50': [...]}}}}
+    Liest indikator.parquet aus EXTERNAL_PARQUET_DIR und liefert ein flaches Dict.
+    Flat column name → List: 'stock_ma_sma_50' → [...]
+    Das Frontend übernimmt das Parsing/Entschachteln eigenständig.
     """
     filepath = os.path.join(EXTERNAL_PARQUET_DIR, ticker, "1D_features.parquet")
     if not os.path.exists(filepath):
@@ -141,16 +131,14 @@ def load_indicators(ticker: str) -> dict:
         # NaN → None für JSON-Kompatibilität
         df = df.where(pd.notnull(df), None)
 
-        result_tree: dict = {}
+        result_dict: dict = {}
         for col in df.columns:
             # Zeitstempel-Spalte überspringen, gehört nicht in den Indikator-Baum
             if col in ("t", "timestamp", "ticker"):
                 continue
-            parts = col.split("_")
-            values = df[col].tolist()
-            _insert_into_tree(result_tree, parts, values)
+            result_dict[col] = df[col].tolist()
 
-        return result_tree
+        return result_dict
 
     except Exception as e:
         print(f"[ERROR] load_indicators({ticker}): {e}")
